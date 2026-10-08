@@ -31,7 +31,7 @@ public class ReservaPersistenciaTests(PostgresFixture fixture)
         public UnidadeDeTrabalho Uow { get; } = new(db);
         public ReservarEstoqueUseCase Reservar { get; } = new(new FilialEstoqueRepository(db), new SaldoEstoqueRepository(db), new ReservaRepository(db), new MovimentacaoRepository(db));
         public LiberarReservaUseCase Liberar { get; } = new(new ReservaRepository(db), new SaldoEstoqueRepository(db), new MovimentacaoRepository(db));
-        public ConsumirReservaUseCase Consumir { get; } = new(new ReservaRepository(db), new SaldoEstoqueRepository(db), new MovimentacaoRepository(db), new UnidadeDeTrabalho(db));
+        public ConsumirReservaUseCase Consumir { get; } = new(new FilialEstoqueRepository(db), new ReservaRepository(db), new SaldoEstoqueRepository(db), new MovimentacaoRepository(db), new UnidadeDeTrabalho(db));
     }
 
     private static ReservarEstoqueCommand Comando(Guid osId, params ItemQuantidade[] itens)

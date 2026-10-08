@@ -13,7 +13,7 @@ public class ReservaSagaUseCasesTests
 
     private ReservarEstoqueUseCase Reservar => new(_f.Filiais.Object, _f.Saldos.Object, _f.Reservas.Object, _f.Movimentacoes.Object);
     private LiberarReservaUseCase Liberar => new(_f.Reservas.Object, _f.Saldos.Object, _f.Movimentacoes.Object);
-    private ConsumirReservaUseCase Consumir => new(_f.Reservas.Object, _f.Saldos.Object, _f.Movimentacoes.Object, _f.Uow.Object);
+    private ConsumirReservaUseCase Consumir => new(_f.Filiais.Object, _f.Reservas.Object, _f.Saldos.Object, _f.Movimentacoes.Object, _f.Uow.Object);
 
     private ReservarEstoqueCommand Comando(params ItemQuantidade[] itens)
         => new(_osId, _f.Filial.Id, _correlationId, $"reserva:{_osId}", itens);

@@ -4,6 +4,7 @@ using OficinaMecanica.Operacoes.Application.Contratos.Saga;
 using OficinaMecanica.Operacoes.Application.Exceptions;
 using OficinaMecanica.Operacoes.Application.Ports.Out;
 using OficinaMecanica.Operacoes.Application.UseCases.Estoque;
+using OficinaMecanica.Operacoes.Application.UseCases.Execucoes;
 using OficinaMecanica.Operacoes.Domain.Estoque;
 
 namespace OficinaMecanica.Operacoes.Application.UseCases.Mensageria;
@@ -19,6 +20,7 @@ public sealed record ResultadoProcessamento(StatusProcessamento Status, string? 
 
 // Participante da Saga (decisões do CARD-38): valida o comando contra o contrato do canal e, em uma
 // única transação, registra a inbox, aplica o efeito e grava o evento de resultado na outbox.
+// O store depende do módulo: Estoque no PostgreSQL, Execução no DynamoDB (ADR-016).
 // Conflito de concorrência e falha de infraestrutura sobem como exceção: o consumidor refaz a mensagem.
 public class ProcessarMensagemSagaUseCase(
     ITransacao transacao,
@@ -27,6 +29,7 @@ public class ProcessarMensagemSagaUseCase(
     IUnidadeDeTrabalho unidadeDeTrabalho,
     ReservarEstoqueUseCase reservar,
     LiberarReservaUseCase liberar,
+    ComandosExecucaoUseCase comandosExecucao,
     ILogger<ProcessarMensagemSagaUseCase> logger)
 {
     public async Task<ResultadoProcessamento> ExecutarAsync(string canal, ReadOnlyMemory<byte> corpo, CancellationToken ct = default)
@@ -42,15 +45,10 @@ public class ProcessarMensagemSagaUseCase(
         var mensagem = leitura.Mensagem!;
         try
         {
-            var status = await transacao.ExecutarAsync(async () =>
-            {
-                if (!await inbox.RegistrarAsync(mensagem, canal, Encoding.UTF8.GetString(corpo.Span), ct))
-                    return StatusProcessamento.Duplicada;
-
-                outbox.Adicionar(await AplicarAsync(mensagem, ct));
-                await unidadeDeTrabalho.SalvarAsync(ct);
-                return StatusProcessamento.Processada;
-            }, ct);
+            var payload = Encoding.UTF8.GetString(corpo.Span);
+            var status = mensagem is DiagnosisRequested or ExecutionStartRequested
+                ? await comandosExecucao.ProcessarAsync(new MensagemRecebida(mensagem, canal, payload), ct)
+                : await ProcessarEstoqueAsync(mensagem, canal, payload, ct);
 
             logger.LogInformation("Mensagem {Status}. MessageType={MessageType} OsId={OsId}", status, mensagem.MessageType, mensagem.OsId);
             return new ResultadoProcessamento(status, null, mensagem.MessageId, mensagem.CorrelationId, mensagem.MessageType);
@@ -61,6 +59,17 @@ public class ProcessarMensagemSagaUseCase(
             return new ResultadoProcessamento(StatusProcessamento.Rejeitada, ex.Message, mensagem.MessageId, mensagem.CorrelationId, mensagem.MessageType);
         }
     }
+
+    private Task<StatusProcessamento> ProcessarEstoqueAsync(MensagemSaga mensagem, string canal, string payload, CancellationToken ct)
+        => transacao.ExecutarAsync(async () =>
+        {
+            if (!await inbox.RegistrarAsync(mensagem, canal, payload, ct))
+                return StatusProcessamento.Duplicada;
+
+            outbox.Adicionar(await AplicarAsync(mensagem, ct));
+            await unidadeDeTrabalho.SalvarAsync(ct);
+            return StatusProcessamento.Processada;
+        }, ct);
 
     private async Task<MensagemSaga> AplicarAsync(MensagemSaga mensagem, CancellationToken ct)
     {

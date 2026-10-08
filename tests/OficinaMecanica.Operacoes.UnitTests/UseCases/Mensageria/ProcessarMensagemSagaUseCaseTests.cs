@@ -5,9 +5,12 @@ using OficinaMecanica.Operacoes.Application.Contratos.Saga;
 using OficinaMecanica.Operacoes.Application.Exceptions;
 using OficinaMecanica.Operacoes.Application.Ports.Out;
 using OficinaMecanica.Operacoes.Application.UseCases.Estoque;
+using OficinaMecanica.Operacoes.Application.UseCases.Execucoes;
+using OficinaMecanica.Operacoes.Application.Ports.In;
 using OficinaMecanica.Operacoes.Application.UseCases.Mensageria;
 using OficinaMecanica.Operacoes.UnitTests.Contratos;
 using OficinaMecanica.Operacoes.UnitTests.UseCases.Estoque;
+using OficinaMecanica.Operacoes.UnitTests.UseCases.Execucoes;
 
 namespace OficinaMecanica.Operacoes.UnitTests.UseCases.Mensageria;
 
@@ -21,6 +24,8 @@ public class ProcessarMensagemSagaUseCaseTests
     private readonly List<MensagemSaga> _outbox = new();
     private readonly HashSet<Guid> _recebidas = new();
 
+    public ExecucaoRepositoryEmMemoria Execucoes { get; } = new();
+
     private ProcessarMensagemSagaUseCase Sut()
     {
         _inbox.Setup(i => i.RegistrarAsync(It.IsAny<MensagemSaga>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -31,6 +36,7 @@ public class ProcessarMensagemSagaUseCaseTests
         return new ProcessarMensagemSagaUseCase(new TransacaoDireta(), _inbox.Object, outbox.Object, _f.Uow.Object,
             new ReservarEstoqueUseCase(_f.Filiais.Object, _f.Saldos.Object, _f.Reservas.Object, _f.Movimentacoes.Object),
             new LiberarReservaUseCase(_f.Reservas.Object, _f.Saldos.Object, _f.Movimentacoes.Object),
+            new ComandosExecucaoUseCase(Execucoes, Mock.Of<IEstoqueParaExecucao>()),
             NullLogger<ProcessarMensagemSagaUseCase>.Instance);
     }
 
@@ -144,5 +150,18 @@ public class ProcessarMensagemSagaUseCaseTests
     private sealed class TransacaoDireta : ITransacao
     {
         public Task<T> ExecutarAsync<T>(Func<Task<T>> acao, CancellationToken ct = default) => acao();
+    }
+
+    [Fact]
+    public async Task ComandoDeExecucao_VaiParaODynamoSemTocarNaInboxDoPostgres()
+    {
+        var pedido = MensagensExemplo.Criar(CatalogoCanaisOperacoes.ObterConsumido("saga-os.diagnosis-requested.v1")!);
+
+        var resultado = await Sut().ExecutarAsync("saga-os.diagnosis-requested.v1", MensagensExemplo.Bytes(pedido));
+
+        Assert.Equal(StatusProcessamento.Processada, resultado.Status);
+        Assert.NotNull(await Execucoes.ObterPorOsAsync(Guid.Parse(pedido["osId"]!.GetValue<string>())));
+        _inbox.Verify(i => i.RegistrarAsync(It.IsAny<MensagemSaga>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _f.Uow.Verify(u => u.SalvarAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

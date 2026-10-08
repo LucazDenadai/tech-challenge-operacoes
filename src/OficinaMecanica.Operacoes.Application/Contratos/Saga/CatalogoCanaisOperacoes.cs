@@ -5,7 +5,7 @@ public sealed record CanalConsumido(string Endereco, string MessageType, int Sch
 public sealed record CanalPublicado(string Endereco, string MessageType, Type TipoMensagem);
 
 // Canais de Operações no AsyncAPI (ADR-018). Testes de contrato comparam estas listas com a spec.
-// Diagnóstico e execução (diagnosis-*, execution-*) entram no CARD-38b.
+// Estoque (CARD-38a) grava no PostgreSQL; Execução (CARD-38b) no DynamoDB.
 public static class CatalogoCanaisOperacoes
 {
     public const string Produtor = "operacoes";
@@ -13,14 +13,22 @@ public static class CatalogoCanaisOperacoes
     public static readonly IReadOnlyList<CanalConsumido> Consumidos =
     [
         Consumido<InventoryReservationRequested>("saga-os.inventory-reservation-requested.v1"),
-        Consumido<InventoryReleaseRequested>("saga-os.inventory-release-requested.v1")
+        Consumido<InventoryReleaseRequested>("saga-os.inventory-release-requested.v1"),
+        Consumido<DiagnosisRequested>("saga-os.diagnosis-requested.v1"),
+        Consumido<ExecutionStartRequested>("saga-os.execution-start-requested.v1")
     ];
 
     public static readonly IReadOnlyList<CanalPublicado> Publicados =
     [
         Publicado<InventoryReserved>("saga-os.inventory-reserved.v1"),
         Publicado<InventoryReservationRejected>("saga-os.inventory-reservation-rejected.v1"),
-        Publicado<InventoryReleased>("saga-os.inventory-released.v1")
+        Publicado<InventoryReleased>("saga-os.inventory-released.v1"),
+        Publicado<DiagnosisCompleted>("saga-os.diagnosis-completed.v1"),
+        Publicado<DiagnosisRejected>("saga-os.diagnosis-rejected.v1"),
+        Publicado<ExecutionStarted>("saga-os.execution-started.v1"),
+        Publicado<ExecutionStartRejected>("saga-os.execution-start-rejected.v1"),
+        Publicado<ExecutionCompleted>("saga-os.execution-completed.v1"),
+        Publicado<ExecutionFailed>("saga-os.execution-failed.v1")
     ];
 
     public static CanalConsumido? ObterConsumido(string endereco) => Consumidos.FirstOrDefault(c => c.Endereco == endereco);

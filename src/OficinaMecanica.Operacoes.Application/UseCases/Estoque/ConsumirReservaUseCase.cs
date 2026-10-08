@@ -9,11 +9,19 @@ namespace OficinaMecanica.Operacoes.Application.UseCases.Estoque;
 // execução fica no DynamoDB e não há transação entre os dois stores (ADR-016). Por isso a
 // chamada é idempotente: a Execução pode repetir após falha ao gravar o próprio estado.
 public class ConsumirReservaUseCase(
+    IFilialEstoqueRepository filialRepository,
     IReservaRepository reservaRepository,
     ISaldoEstoqueRepository saldoRepository,
     IMovimentacaoRepository movimentacaoRepository,
     IUnidadeDeTrabalho unidadeDeTrabalho) : IEstoqueParaExecucao
 {
+    public async Task<bool> FilialOperaEstoqueAsync(Guid filialId, CancellationToken ct = default)
+        => await filialRepository.ObterPorIdAsync(filialId, ct) is { Ativo: true };
+
+    public async Task<bool> ReservaAtivaDaOsAsync(Guid reservaId, Guid osId, CancellationToken ct = default)
+        => await reservaRepository.ObterPorIdAsync(reservaId, ct) is { Status: StatusReserva.Ativa, ConsumoRegistrado: false } reserva
+           && reserva.OsId == osId;
+
     public async Task ConcluirConsumoAsync(Guid reservaId, IReadOnlyList<ItemQuantidade> consumidos, CancellationToken ct = default)
     {
         var reserva = await ObterAsync(reservaId, ct);

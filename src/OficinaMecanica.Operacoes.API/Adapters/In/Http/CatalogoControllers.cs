@@ -113,4 +113,5 @@ public static class Perfis
     public const string Admin = "Admin";
     public const string Funcionarios = "Admin,Atendente,Mecanico";
     public const string AdminEAtendente = "Admin,Atendente";
+    public const string Tecnicos = "Admin,Mecanico";
 }

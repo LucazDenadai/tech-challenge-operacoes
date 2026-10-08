@@ -5,11 +5,12 @@ using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
+using OficinaMecanica.Operacoes.IntegrationTests.Fixtures;
 
 namespace OficinaMecanica.Operacoes.IntegrationTests.Api;
 
 // Sobe a API real (Program.cs, migrations e seed) contra um banco PostgreSQL vazio do Testcontainers.
-public class OperacoesApiFactory(string connectionString) : WebApplicationFactory<Program>
+public class OperacoesApiFactory(string connectionString, DynamoDbFixture dynamo) : WebApplicationFactory<Program>
 {
     private const string JwtKey = "chave-jwt-de-teste-com-mais-de-32-caracteres";
     private const string JwtIssuer = "oficina-atendimento";
@@ -26,6 +27,11 @@ public class OperacoesApiFactory(string connectionString) : WebApplicationFactor
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("RabbitMq:Enabled", "false");
         builder.UseSetting("Jaeger:Endpoint", "http://localhost:4318");
+        builder.UseSetting("DynamoDb:ServiceUrl", dynamo.Endpoint);
+        builder.UseSetting("DynamoDb:AccessKey", DynamoDbFixture.AccessKey);
+        builder.UseSetting("DynamoDb:SecretKey", DynamoDbFixture.SecretKey);
+        builder.UseSetting("DynamoDb:Tabela", $"execucoes-{Guid.NewGuid():N}");
+        builder.UseSetting("DynamoDb:CriarTabela", "true");
     }
 
     // Token no formato emitido pelo OS para funcionários (sub, email, role), mesma chave e issuer (ADR-015).

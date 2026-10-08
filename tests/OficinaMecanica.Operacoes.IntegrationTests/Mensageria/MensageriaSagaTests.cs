@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using OficinaMecanica.Operacoes.Application.UseCases.Execucoes;
 using OficinaMecanica.Operacoes.Domain.Estoque;
+using OficinaMecanica.Operacoes.Domain.Execucoes;
 using OficinaMecanica.Operacoes.Infrastructure;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.In.Messaging;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Seed;
@@ -15,9 +17,10 @@ using Testcontainers.RabbitMq;
 
 namespace OficinaMecanica.Operacoes.IntegrationTests.Mensageria;
 
-// Fluxo real pelo RabbitMQ e PostgreSQL: comando do OS -> inbox + efeito + outbox -> evento publicado (CARD-38a).
+// Fluxo real pelo RabbitMQ, PostgreSQL e DynamoDB Local: comando do OS -> inbox + efeito + outbox -> evento publicado
+// (CARD-38a para o Estoque, CARD-38b para a Execução).
 [Collection(PostgresCollection.Nome)]
-public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
+public class MensageriaSagaTests(PostgresFixture postgres, DynamoDbFixture dynamo) : IAsyncLifetime
 {
     private const string Usuario = "operacoes-teste";
     private const string Senha = "operacoes-teste-senha";
@@ -26,6 +29,12 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
     private const string Reservado = "saga-os.inventory-reserved.v1";
     private const string Recusado = "saga-os.inventory-reservation-rejected.v1";
     private const string Liberado = "saga-os.inventory-released.v1";
+    private const string PedidoDiagnostico = "saga-os.diagnosis-requested.v1";
+    private const string PedidoInicio = "saga-os.execution-start-requested.v1";
+    private const string Diagnosticado = "saga-os.diagnosis-completed.v1";
+    private const string Iniciada = "saga-os.execution-started.v1";
+    private const string InicioRecusado = "saga-os.execution-start-rejected.v1";
+    private const string Concluida = "saga-os.execution-completed.v1";
 
     private readonly RabbitMqContainer _rabbit = new RabbitMqBuilder("rabbitmq:3.13-alpine")
         .WithUsername(Usuario)
@@ -43,7 +52,7 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
     private string _conexaoBanco = null!;
     private IConnection _conexao = null!;
     private IChannel _canal = null!;
-    private Guid _oleo, _vela;
+    private Guid _oleo, _vela, _servico;
 
     public async Task InitializeAsync()
     {
@@ -57,6 +66,7 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
             await SeedDemonstracao.ExecutarAsync(db);
             _oleo = (await db.Pecas.SingleAsync(p => p.Codigo == "OLEO-5W30-1L")).Id;
             _vela = (await db.Pecas.SingleAsync(p => p.Codigo == "VELA-IGN-01")).Id;
+            _servico = (await db.Servicos.SingleAsync(s => s.Nome == "Troca de óleo e filtro")).Id;
         }
 
         var builder = Host.CreateApplicationBuilder();
@@ -68,7 +78,12 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
             ["RabbitMq:Port"] = uri.Port.ToString(),
             ["RabbitMq:Username"] = Usuario,
             ["RabbitMq:Password"] = Senha,
-            ["RabbitMq:IntervaloOutboxMs"] = "100"
+            ["RabbitMq:IntervaloOutboxMs"] = "100",
+            ["DynamoDb:ServiceUrl"] = dynamo.Endpoint,
+            ["DynamoDb:AccessKey"] = DynamoDbFixture.AccessKey,
+            ["DynamoDb:SecretKey"] = DynamoDbFixture.SecretKey,
+            ["DynamoDb:Tabela"] = $"execucoes-{Guid.NewGuid():N}",
+            ["DynamoDb:CriarTabela"] = "true"
         });
         builder.Services.AddInfrastructure(builder.Configuration).AddMensageria(builder.Configuration);
         _host = builder.Build();
@@ -79,7 +94,7 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
 
         _conexao = await new ConnectionFactory { Uri = uri, UserName = Usuario, Password = Senha }.CreateConnectionAsync();
         _canal = await _conexao.CreateChannelAsync();
-        foreach (var evento in new[] { Reservado, Recusado, Liberado })
+        foreach (var evento in new[] { Reservado, Recusado, Liberado, Diagnosticado, Iniciada, InicioRecusado, Concluida })
         {
             await _canal.ExchangeDeclareAsync(evento, ExchangeType.Fanout, durable: true, autoDelete: false);
             await _canal.QueueDeclareAsync(FilaTeste(evento), durable: false, exclusive: false, autoDelete: false);
@@ -202,12 +217,116 @@ public class MensageriaSagaTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(0, await db.Inbox.CountAsync());
     }
 
+    [Fact]
+    public async Task FluxoDaExecucao_DiagnosticoReservaInicioEConclusao()
+    {
+        var osId = Guid.NewGuid();
+        var correlacao = Guid.NewGuid().ToString();
+        const string Mecanico = "mecanico@oficina.example";
+
+        // 1. OS pede o diagnóstico: a execução nasce no DynamoDB, sem evento até o técnico registrar.
+        var pedidoDiagnostico = PedidoDaOs(PedidoDiagnostico, osId, ("veiculoId", Guid.NewGuid().ToString()));
+        pedidoDiagnostico["correlationId"] = correlacao;
+        await PublicarAsync(PedidoDiagnostico, pedidoDiagnostico);
+        ExecucaoResponse? execucao = null;
+        await Aguardar(async () => (execucao = await ExecucaoDaOsAsync(osId)) is not null);
+
+        // 2. Técnico registra o diagnóstico: DiagnosisCompleted com o preço do catálogo.
+        await UsarAcoesAsync(a => a.RegistrarDiagnosticoAsync(execucao!.Id, new RegistrarDiagnosticoRequest
+        {
+            Itens =
+            [
+                new() { Tipo = TipoItemDiagnostico.Peca, ItemId = _oleo, Quantidade = 4 },
+                new() { Tipo = TipoItemDiagnostico.Servico, ItemId = _servico, Quantidade = 1 }
+            ]
+        }, Mecanico));
+        var (diagnostico, _) = await ReceberAsync(FilaTeste(Diagnosticado));
+        Assert.Equal(execucao!.Id.ToString(), diagnostico["executionId"]!.GetValue<string>());
+        Assert.Equal(pedidoDiagnostico["messageId"]!.GetValue<string>(), diagnostico["causationId"]!.GetValue<string>());
+        Assert.Contains(diagnostico["items"]!.AsArray(), i => i!["unitPrice"]!.GetValue<decimal>() == 39.90m);
+
+        // 3. Reserva das peças (CARD-38a).
+        var pedidoReserva = PedidoDaOs(PedidoReserva, osId, ("items", Itens(_oleo, 4)));
+        pedidoReserva["correlationId"] = correlacao;
+        await PublicarAsync(PedidoReserva, pedidoReserva);
+        var (reservado, _) = await ReceberAsync(FilaTeste(Reservado));
+
+        // 4. Pagamento aprovado, OS pede o início: entra na fila, no mesmo trace do comando.
+        var traceId = ActivityTraceId.CreateRandom();
+        var pedidoInicio = PedidoDaOs(PedidoInicio, osId,
+            ("executionId", execucao.Id.ToString()), ("reservationId", reservado["reservationId"]!.GetValue<string>()));
+        pedidoInicio["correlationId"] = correlacao;
+        await PublicarAsync(PedidoInicio, pedidoInicio, $"00-{traceId}-{ActivitySpanId.CreateRandom()}-01");
+        var (iniciada, propriedadesInicio) = await ReceberAsync(FilaTeste(Iniciada));
+        Assert.Equal(pedidoInicio["messageId"]!.GetValue<string>(), iniciada["causationId"]!.GetValue<string>());
+        Assert.Contains(traceId.ToString(), Encoding.UTF8.GetString((byte[])propriedadesInicio.Headers!["traceparent"]!));
+
+        // 5. Reparo e conclusão com 3 das 4 unidades: ExecutionCompleted e a sobra volta ao estoque.
+        await UsarAcoesAsync(a => a.IniciarReparoAsync(execucao.Id, Mecanico));
+        await UsarAcoesAsync(a => a.RegistrarEtapaAsync(execucao.Id, "Óleo drenado", Mecanico));
+        await UsarAcoesAsync(a => a.ConcluirAsync(execucao.Id, [new() { PecaId = _oleo, Quantidade = 3 }], Mecanico));
+        var (concluida, _) = await ReceberAsync(FilaTeste(Concluida));
+        Assert.Equal(3, concluida["consumedItems"]![0]!["quantity"]!.GetValue<int>());
+        Assert.Equal(correlacao, concluida["correlationId"]!.GetValue<string>());
+
+        await using var db = PostgresFixture.CriarContexto(_conexaoBanco);
+        var saldo = await db.Saldos.SingleAsync(s => s.PecaId == _oleo);
+        Assert.Equal(57, saldo.QuantidadeDisponivel);
+        Assert.Equal(0, saldo.QuantidadeReservada);
+        var final = (await ExecucaoDaOsAsync(osId))!;
+        Assert.Equal(StatusExecucao.Concluida, final.Status);
+        Assert.Single(final.Etapas);
+    }
+
+    [Fact]
+    public async Task InicioSemDiagnostico_PublicaExecutionStartRejected()
+    {
+        var osId = Guid.NewGuid();
+        await PublicarAsync(PedidoDiagnostico, PedidoDaOs(PedidoDiagnostico, osId, ("veiculoId", Guid.NewGuid().ToString())));
+        ExecucaoResponse? execucao = null;
+        await Aguardar(async () => (execucao = await ExecucaoDaOsAsync(osId)) is not null);
+
+        await PublicarAsync(PedidoInicio, PedidoDaOs(PedidoInicio, osId,
+            ("executionId", execucao!.Id.ToString()), ("reservationId", Guid.NewGuid().ToString())));
+
+        var (recusa, _) = await ReceberAsync(FilaTeste(InicioRecusado));
+        Assert.Contains("EmDiagnostico", recusa["reason"]!.GetValue<string>());
+        Assert.Equal(StatusExecucao.EmDiagnostico, (await ExecucaoDaOsAsync(osId))!.Status);
+    }
+
+    private async Task<ExecucaoResponse?> ExecucaoDaOsAsync(Guid osId)
+    {
+        using var escopo = _host.Services.CreateScope();
+        try
+        {
+            return await escopo.ServiceProvider.GetRequiredService<ConsultarExecucoesUseCase>().ObterPorOsAsync(osId);
+        }
+        catch (OficinaMecanica.Operacoes.Application.Exceptions.NotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private async Task UsarAcoesAsync(Func<AcoesExecucaoUseCase, Task> acao)
+    {
+        using var escopo = _host.Services.CreateScope();
+        await acao(escopo.ServiceProvider.GetRequiredService<AcoesExecucaoUseCase>());
+    }
+
     private static string FilaTeste(string exchange) => $"teste.{exchange}";
 
     private static JsonObject Pedido(string canal, params (string Campo, JsonNode Valor)[] payload)
+        => PedidoDaOs(canal, Guid.NewGuid(), payload);
+
+    private static JsonObject PedidoDaOs(string canal, Guid osId, params (string Campo, JsonNode Valor)[] payload)
     {
-        var tipo = canal == PedidoReserva ? "InventoryReservationRequested.v1" : "InventoryReleaseRequested.v1";
-        var osId = Guid.NewGuid();
+        var tipo = canal switch
+        {
+            PedidoReserva => "InventoryReservationRequested.v1",
+            PedidoLiberacao => "InventoryReleaseRequested.v1",
+            PedidoDiagnostico => "DiagnosisRequested.v1",
+            _ => "ExecutionStartRequested.v1"
+        };
         var mensagem = new JsonObject
         {
             ["messageId"] = Guid.NewGuid().ToString(),
