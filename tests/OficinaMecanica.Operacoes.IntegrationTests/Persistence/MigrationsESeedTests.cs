@@ -24,8 +24,8 @@ public class MigrationsESeedTests(PostgresFixture fixture)
         Assert.Equal(
             new[]
             {
-                "public.Filiais", "public.ItensReserva", "public.Movimentacoes", "public.Pecas", "public.Reservas",
-                "public.Saldos", "public.Servicos", "public.__EFMigrationsHistory"
+                "public.Filiais", "public.InboxMensagens", "public.ItensReserva", "public.Movimentacoes", "public.OutboxMensagens",
+                "public.Pecas", "public.Reservas", "public.Saldos", "public.Servicos", "public.__EFMigrationsHistory"
             }.Order(),
             tabelas.Order());
     }

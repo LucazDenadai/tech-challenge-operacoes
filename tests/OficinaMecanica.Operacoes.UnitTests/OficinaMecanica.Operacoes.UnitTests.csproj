@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\contratos\asyncapi-saga-os.yaml" Link="Contratos\asyncapi-saga-os.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\OficinaMecanica.Operacoes.Application\OficinaMecanica.Operacoes.Application.csproj" />
     <ProjectReference Include="..\..\src\OficinaMecanica.Operacoes.Domain\OficinaMecanica.Operacoes.Domain.csproj" />
   </ItemGroup>

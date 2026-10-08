@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using OficinaMecanica.Operacoes.Domain.Catalogo;
 using OficinaMecanica.Operacoes.Domain.Estoque;
+using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Mensageria;
 
 namespace OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence;
 
@@ -17,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<SaldoEstoque> Saldos => Set<SaldoEstoque>();
     public DbSet<Reserva> Reservas => Set<Reserva>();
     public DbSet<MovimentacaoEstoque> Movimentacoes => Set<MovimentacaoEstoque>();
+    [ExcludeFromCodeCoverage] public DbSet<MensagemInbox> Inbox => Set<MensagemInbox>();
+    public DbSet<MensagemOutbox> Outbox => Set<MensagemOutbox>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
