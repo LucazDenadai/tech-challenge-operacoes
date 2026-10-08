@@ -7,15 +7,6 @@ namespace OficinaMecanica.Operacoes.UnitTests.Contratos;
 // com o JSON Schema da spec AsyncAPI.
 public class ContratoAsyncApiTests
 {
-    // Canais de diagnóstico e execução: entram no CARD-38b. Listados aqui para não serem esquecidos.
-    private static readonly string[] _consumidosNoCard38b = ["saga-os.diagnosis-requested.v1", "saga-os.execution-start-requested.v1"];
-
-    private static readonly string[] _publicadosNoCard38b =
-    [
-        "saga-os.diagnosis-completed.v1", "saga-os.diagnosis-rejected.v1", "saga-os.execution-started.v1",
-        "saga-os.execution-start-rejected.v1", "saga-os.execution-completed.v1", "saga-os.execution-failed.v1"
-    ];
-
     public static TheoryData<string> Canais()
     {
         var dados = new TheoryData<string>();
@@ -46,10 +37,7 @@ public class ContratoAsyncApiTests
     {
         var spec = SpecAsyncApi.CanaisConsumidosPorOperacoes();
 
-        Assert.Equal(
-            spec.Keys.Except(_consumidosNoCard38b).Order(),
-            CatalogoCanaisOperacoes.Consumidos.Select(c => c.Endereco).Order());
-        Assert.All(_consumidosNoCard38b, c => Assert.Contains(c, spec.Keys));
+        Assert.Equal(spec.Keys.Order(), CatalogoCanaisOperacoes.Consumidos.Select(c => c.Endereco).Order());
         foreach (var canal in CatalogoCanaisOperacoes.Consumidos)
             Assert.Equal(SpecAsyncApi.NomeVersionado(spec[canal.Endereco]), canal.MessageType);
     }
@@ -59,10 +47,7 @@ public class ContratoAsyncApiTests
     {
         var spec = SpecAsyncApi.CanaisProduzidosPorOperacoes();
 
-        Assert.Equal(
-            spec.Keys.Except(_publicadosNoCard38b).Order(),
-            CatalogoCanaisOperacoes.Publicados.Select(c => c.Endereco).Order());
-        Assert.All(_publicadosNoCard38b, c => Assert.Contains(c, spec.Keys));
+        Assert.Equal(spec.Keys.Order(), CatalogoCanaisOperacoes.Publicados.Select(c => c.Endereco).Order());
         foreach (var canal in CatalogoCanaisOperacoes.Publicados)
             Assert.Equal(SpecAsyncApi.NomeVersionado(spec[canal.Endereco]), canal.MessageType);
     }
@@ -146,7 +131,8 @@ public class ContratoAsyncApiTests
 
     public static TheoryData<string> EventosPublicados() => new()
     {
-        "reservado", "recusado-com-pecas", "recusado-sem-pecas", "liberado", "liberado-sem-itens"
+        "reservado", "recusado-com-pecas", "recusado-sem-pecas", "liberado", "liberado-sem-itens",
+        "diagnosticado", "diagnostico-rejeitado", "iniciada", "inicio-recusado", "concluida", "concluida-sem-consumo", "falhou"
     };
 
     [Theory]
@@ -164,6 +150,15 @@ public class ContratoAsyncApiTests
             "recusado-sem-pecas" => RespostaSaga.ReservaRecusada(comando, "A filial não opera estoque em Operações.", []),
             "liberado" => RespostaSaga.Liberado(comando, Guid.NewGuid(), pecas),
             "liberado-sem-itens" => RespostaSaga.Liberado(comando, Guid.NewGuid(), []),
+            "diagnosticado" => RespostaSaga.Diagnosticado(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow,
+                [new PricedItem { ItemId = Guid.NewGuid(), Type = "Peca", Description = "Filtro de óleo", Quantity = 1, UnitPrice = 45.90m },
+                 new PricedItem { ItemId = Guid.NewGuid(), Type = "Servico", Description = "Troca de óleo", Quantity = 1, UnitPrice = 80m }]),
+            "diagnostico-rejeitado" => RespostaSaga.DiagnosticoRejeitado(OrigemEvento.De(comando), "A filial não opera em Operações."),
+            "iniciada" => RespostaSaga.Iniciada(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow),
+            "inicio-recusado" => RespostaSaga.InicioRecusado(OrigemEvento.De(comando), Guid.NewGuid(), "Reserva inexistente."),
+            "concluida" => RespostaSaga.Concluida(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow, pecas),
+            "concluida-sem-consumo" => RespostaSaga.Concluida(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow, []),
+            "falhou" => RespostaSaga.Falhou(OrigemEvento.De(comando), Guid.NewGuid(), "Peça danificada na instalação", pecas),
             _ => throw new ArgumentOutOfRangeException(nameof(caso))
         };
 
