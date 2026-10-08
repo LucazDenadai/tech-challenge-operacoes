@@ -14,7 +14,7 @@ public class OperacoesApiTests : IAsyncLifetime
 
     private readonly OperacoesApiFactory _factory;
 
-    public OperacoesApiTests(PostgresFixture fixture) => _factory = new OperacoesApiFactory(fixture.NovoBancoVazio());
+    public OperacoesApiTests(PostgresFixture fixture, DynamoDbFixture dynamo) => _factory = new OperacoesApiFactory(fixture.NovoBancoVazio(), dynamo);
 
     public Task InitializeAsync() => Task.CompletedTask;
 
@@ -219,6 +219,8 @@ public class OperacoesApiTests : IAsyncLifetime
         Assert.Contains("/operacoes/servicos", rotas);
         Assert.Contains("/operacoes/estoque/filiais/{filialId}/saldos", rotas);
         Assert.Contains("/operacoes/estoque/disponibilidade", rotas);
+        Assert.Contains("/operacoes/execucoes/{id}/conclusao", rotas);
+        Assert.Contains("/operacoes/execucoes/os/{osId}", rotas);
         // Reserva, consumo e liberação são só da Saga (ADR-017).
         Assert.DoesNotContain(rotas, r => r.Contains("reserva", StringComparison.OrdinalIgnoreCase));
 

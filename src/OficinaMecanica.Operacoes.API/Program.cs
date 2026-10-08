@@ -11,6 +11,7 @@ using OficinaMecanica.Operacoes.API.Filters;
 using OficinaMecanica.Operacoes.API.Middleware;
 using OficinaMecanica.Operacoes.Infrastructure;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.In.Messaging;
+using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Dynamo;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Seed;
 
@@ -97,9 +98,10 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
-// ── Health Checks: liveness sem dependências; readiness com banco e broker ─────
+// ── Health Checks: liveness sem dependências; readiness com os dois stores e o broker ─
 var healthChecks = builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("postgres", tags: ["ready"]);
+    .AddDbContextCheck<AppDbContext>("postgres", tags: ["ready"])
+    .AddCheck<DynamoDbHealthCheck>("dynamodb", tags: ["ready"]);
 if (builder.Configuration.GetValue<bool>("RabbitMq:Enabled"))
     healthChecks.AddCheck<ConsumidorSagaHealthCheck>("rabbitmq", tags: ["ready"]);
 
@@ -111,8 +113,9 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Oficina Mecânica — Operações API",
         Version = "v1",
-        Description = "Serviço Operações da Fase 4: catálogo de peças e serviços, saldos por filial, disponibilidade e movimentações. "
-                      + "Reserva, consumo e liberação vêm só pelos comandos da Saga (AsyncAPI)."
+        Description = "Serviço Operações da Fase 4: catálogo de peças e serviços, saldos por filial, disponibilidade, movimentações "
+                      + "e execução da OS (diagnóstico, fila, reparo, conclusão e falha). "
+                      + "Reserva, consumo, liberação e início da execução vêm só pelos comandos da Saga (AsyncAPI)."
     });
 
     options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, $"{typeof(Program).Assembly.GetName().Name}.xml"));
