@@ -1,0 +1,46 @@
+# Dependências locais do serviço Operações (ADR-016). Sem conta nem credencial AWS:
+# o DynamoDB Local roda em container e aceita credenciais fictícias.
+#
+#   docker compose up -d
+#
+# Depois rode a API pelo dotnet com as variáveis do README (seção Executar).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: oficina_operacoes
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-operacoes:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: operacoes
+      RABBITMQ_DEFAULT_PASS: operacoes-local
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.6.1
+    # -sharedDb: uma base para qualquer região/credencial fictícia; dados persistidos no volume.
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    working_dir: /home/dynamodblocal
+    user: root
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb-operacoes:/home/dynamodblocal/data
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    ports:
+      - "4318:4318"
+      - "16686:16686"
+
+volumes:
+  postgres-operacoes:
+  dynamodb-operacoes:

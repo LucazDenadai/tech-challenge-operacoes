@@ -1,3 +1,4 @@
+using Amazon.DynamoDBv2;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,7 +8,9 @@ using OficinaMecanica.Operacoes.Application.Ports.In;
 using OficinaMecanica.Operacoes.Application.Ports.Out;
 using OficinaMecanica.Operacoes.Application.UseCases.Catalogo;
 using OficinaMecanica.Operacoes.Application.UseCases.Estoque;
+using OficinaMecanica.Operacoes.Application.UseCases.Execucoes;
 using OficinaMecanica.Operacoes.Application.UseCases.Mensageria;
+using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Dynamo;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Repositories;
 
@@ -43,6 +46,20 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ConsumirReservaUseCase>();
         services.AddScoped<IEstoqueParaExecucao>(sp => sp.GetRequiredService<ConsumirReservaUseCase>());
         services.AddScoped<ProcessarMensagemSagaUseCase>();
+
+        // Execução: tabela DynamoDB exclusiva de Operações (ADR-016).
+        var secaoDynamo = configuration.GetSection(DynamoDbOptions.Secao);
+        var dynamo = secaoDynamo.Get<DynamoDbOptions>() ?? new DynamoDbOptions();
+        services.Configure<DynamoDbOptions>(secaoDynamo);
+        services.AddSingleton<IAmazonDynamoDB>(_ => dynamo.CriarCliente());
+        if (dynamo.CriarTabela)
+            services.AddHostedService<CriarTabelaDynamoHostedService>();
+
+        services.AddScoped<IExecucaoRepository, ExecucaoRepository>();
+        services.AddScoped<ICatalogoParaExecucao, PrecificarDiagnosticoUseCase>();
+        services.AddScoped<ComandosExecucaoUseCase>();
+        services.AddScoped<AcoesExecucaoUseCase>();
+        services.AddScoped<ConsultarExecucoesUseCase>();
 
         return services;
     }
