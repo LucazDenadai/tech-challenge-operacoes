@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OficinaMecanica.Operacoes.Domain/OficinaMecanica.Operacoes.Domain.csproj" />
+    <Project Path="src/OficinaMecanica.Operacoes.API/OficinaMecanica.Operacoes.API.csproj" />
+    <Project Path="src/OficinaMecanica.Operacoes.Application/OficinaMecanica.Operacoes.Application.csproj" />
+    <Project Path="src/OficinaMecanica.Operacoes.Infrastructure/OficinaMecanica.Operacoes.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OficinaMecanica.Operacoes.UnitTests/OficinaMecanica.Operacoes.UnitTests.csproj" />
+    <Project Path="tests/OficinaMecanica.Operacoes.IntegrationTests/OficinaMecanica.Operacoes.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
