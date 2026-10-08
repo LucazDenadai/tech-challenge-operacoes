@@ -40,7 +40,7 @@ public class PostgresFixture : IAsyncLifetime
 }
 
 [CollectionDefinition(Nome)]
-public class PostgresCollection : ICollectionFixture<PostgresFixture>
+public class PostgresCollection : ICollectionFixture<PostgresFixture>, ICollectionFixture<DynamoDbFixture>
 {
     public const string Nome = "Postgres";
 }

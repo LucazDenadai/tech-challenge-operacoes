@@ -79,7 +79,9 @@ public static class InfrastructureServiceExtensions
         services.Configure<RabbitMqOptions>(secao);
         services.AddSingleton<EstadoConsumidorSaga>();
         services.AddHostedService<ConsumidorSagaHostedService>();
+        services.AddSingleton<PublicadorRabbitMq>();
         services.AddHostedService<DespachanteOutboxHostedService>();
+        services.AddHostedService<DespachanteOutboxDynamoHostedService>();
         return services;
     }
 }

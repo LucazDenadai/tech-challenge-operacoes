@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using OficinaMecanica.Operacoes.Application.Contratos.Saga;
 using OficinaMecanica.Operacoes.Application.Ports.Out;
 using OficinaMecanica.Operacoes.Application.UseCases.Estoque;
+using OficinaMecanica.Operacoes.Application.UseCases.Execucoes;
 using OficinaMecanica.Operacoes.Application.UseCases.Mensageria;
+using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Dynamo;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Repositories;
 using OficinaMecanica.Operacoes.Infrastructure.Adapters.Out.Persistence.Seed;
@@ -15,7 +17,7 @@ namespace OficinaMecanica.Operacoes.IntegrationTests.Persistence;
 
 // ADR-016: inbox, efeito e outbox são confirmados juntos. Uma falha no meio não deixa nenhum dos três.
 [Collection(PostgresCollection.Nome)]
-public class AtomicidadeMensageriaTests(PostgresFixture fixture)
+public class AtomicidadeMensageriaTests(PostgresFixture fixture, DynamoDbFixture dynamo)
 {
     [Fact]
     public async Task FalhaAoGravarOutbox_DesfazInboxEReserva()
@@ -56,10 +58,12 @@ public class AtomicidadeMensageriaTests(PostgresFixture fixture)
 
     private const string Canal = "saga-os.inventory-reservation-requested.v1";
 
-    private static ProcessarMensagemSagaUseCase Processar(AppDbContext db, IOutbox outbox)
+    private ProcessarMensagemSagaUseCase Processar(AppDbContext db, IOutbox outbox)
         => new(new Transacao(db), new InboxRepository(db), outbox, new UnidadeDeTrabalho(db),
             new ReservarEstoqueUseCase(new FilialEstoqueRepository(db), new SaldoEstoqueRepository(db), new ReservaRepository(db), new MovimentacaoRepository(db)),
             new LiberarReservaUseCase(new ReservaRepository(db), new SaldoEstoqueRepository(db), new MovimentacaoRepository(db)),
+            new ComandosExecucaoUseCase(new ExecucaoRepository(dynamo.Opcoes().CriarCliente(), Microsoft.Extensions.Options.Options.Create(dynamo.Opcoes())),
+                new ConsumirReservaUseCase(new FilialEstoqueRepository(db), new ReservaRepository(db), new SaldoEstoqueRepository(db), new MovimentacaoRepository(db), new UnidadeDeTrabalho(db))),
             NullLogger<ProcessarMensagemSagaUseCase>.Instance);
 
     private static ReadOnlyMemory<byte> Pedido(Guid pecaId)
