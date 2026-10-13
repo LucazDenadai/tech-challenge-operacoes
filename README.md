@@ -76,7 +76,7 @@ O seed cria a filial `FILIAL-DEMO` com o mesmo `Id` do seed do OS (`378aeb39-37f
 
 Reserva, consumo, liberação e o início da execução não têm rota: vêm só pelos comandos da Saga. Transição fora de ordem devolve `422`. Gravação concorrente sobre o mesmo saldo ou a mesma execução devolve `409`. Todas as respostas devolvem o cabeçalho `X-Correlation-Id`, recebido ou gerado.
 
-Estados da execução: `EmDiagnostico` → `Diagnosticada` → `NaFila` → `EmReparo` → `Concluida` ou `Falhou`. `DiagnosticoRejeitado` encerra no início. Cada transição fica no histórico com responsável, data e motivo.
+Estados da execução: `EmDiagnostico` → `Diagnosticada` → `NaFila` → `EmReparo` → `Concluida` ou `Falhou`. `DiagnosticoRejeitado` encerra no início. `Cancelada` encerra a pedido da Saga, só a partir de `Diagnosticada` ou `NaFila` (ADR-020). Cada transição fica no histórico com responsável, data e motivo.
 
 ## Mensageria
 
@@ -87,7 +87,8 @@ Operações é participante da Saga orquestrada pelo OS (ADR-017). Para cada com
 | `InventoryReservationRequested.v1` | Reserva tudo ou nada por `(filialId, pecaId)` | `InventoryReserved.v1` ou `InventoryReservationRejected.v1` com `unavailablePecaIds` |
 | `InventoryReleaseRequested.v1` | Devolve ao disponível o que não foi consumido | `InventoryReleased.v1` |
 | `DiagnosisRequested.v1` | Abre a execução da OS (uma por OS). Filial onde Operações não opera é rejeitada. | Nenhum até o técnico registrar. Na rejeição automática, `DiagnosisRejected.v1`. |
-| `ExecutionStartRequested.v1` | Põe na fila a execução diagnosticada com reserva ativa da mesma OS | `ExecutionStarted.v1` ou `ExecutionStartRejected.v1` |
+| `ExecutionStartRequested.v1` | Põe na fila a execução diagnosticada com reserva ativa da mesma OS. Sem `reservationId`, só quando o diagnóstico não tem peças (serviço sem peça, ADR-020); a conclusão então não move estoque. | `ExecutionStarted.v1` ou `ExecutionStartRejected.v1` |
+| `ExecutionCancelRequested.v1` | Cancela a execução antes do reparo (`Diagnosticada` ou `NaFila`). Em reparo ou encerrada, recusa. A mesma `idempotencyKey` republica o resultado. | `ExecutionCancelled.v1` ou `ExecutionCancelRejected.v1` |
 
 Pela API, o técnico gera `DiagnosisCompleted.v1` (itens com o preço do catálogo), `DiagnosisRejected.v1`, `ExecutionCompleted.v1` e `ExecutionFailed.v1`.
 
