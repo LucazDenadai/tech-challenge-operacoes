@@ -1,0 +1,45 @@
+# Banco exclusivo do serviço (ADR-016), no cluster e sem disco persistente: demonstração (ADR-021).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-operacoes
+  labels: { app: postgres-operacoes }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: postgres-operacoes }
+  template:
+    metadata:
+      labels: { app: postgres-operacoes }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_DB, value: oficina_operacoes }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: operacoes-segredos, key: db-senha } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres"] }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - { name: dados, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: dados
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-operacoes
+spec:
+  selector: { app: postgres-operacoes }
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }

@@ -1,0 +1,49 @@
+# API do serviço Operações. Migrations e seed rodam no start; o startupProbe dá tempo para isso.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operacoes
+  labels: { app: operacoes }
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: { app: operacoes }
+  template:
+    metadata:
+      labels: { app: operacoes }
+    spec:
+      containers:
+        - name: operacoes
+          image: tech-challenge-operacoes
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: operacoes-config }
+          env:
+            - name: DB_SENHA
+              valueFrom: { secretKeyRef: { name: operacoes-segredos, key: db-senha } }
+            # $(DB_SENHA) é expandido pelo Kubernetes a partir da variável acima.
+            - name: ConnectionStrings__DefaultConnection
+              value: Host=postgres-operacoes;Database=oficina_operacoes;Username=postgres;Password=$(DB_SENHA)
+            - name: Jwt__Key
+              valueFrom: { secretKeyRef: { name: plataforma-segredos, key: jwt-key } }
+            - name: RabbitMq__Username
+              valueFrom: { secretKeyRef: { name: plataforma-segredos, key: rabbitmq-usuario } }
+            - name: RabbitMq__Password
+              valueFrom: { secretKeyRef: { name: plataforma-segredos, key: rabbitmq-senha } }
+          startupProbe:
+            httpGet: { path: /operacoes/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /operacoes/health, port: http }
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /operacoes/ready, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { cpu: "1", memory: 512Mi }
