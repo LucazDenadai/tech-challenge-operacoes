@@ -15,7 +15,8 @@ public static class CatalogoCanaisOperacoes
         Consumido<InventoryReservationRequested>("saga-os.inventory-reservation-requested.v1"),
         Consumido<InventoryReleaseRequested>("saga-os.inventory-release-requested.v1"),
         Consumido<DiagnosisRequested>("saga-os.diagnosis-requested.v1"),
-        Consumido<ExecutionStartRequested>("saga-os.execution-start-requested.v1")
+        Consumido<ExecutionStartRequested>("saga-os.execution-start-requested.v1"),
+        Consumido<ExecutionCancelRequested>("saga-os.execution-cancel-requested.v1")
     ];
 
     public static readonly IReadOnlyList<CanalPublicado> Publicados =
@@ -27,6 +28,8 @@ public static class CatalogoCanaisOperacoes
         Publicado<DiagnosisRejected>("saga-os.diagnosis-rejected.v1"),
         Publicado<ExecutionStarted>("saga-os.execution-started.v1"),
         Publicado<ExecutionStartRejected>("saga-os.execution-start-rejected.v1"),
+        Publicado<ExecutionCancelled>("saga-os.execution-cancelled.v1"),
+        Publicado<ExecutionCancelRejected>("saga-os.execution-cancel-rejected.v1"),
         Publicado<ExecutionCompleted>("saga-os.execution-completed.v1"),
         Publicado<ExecutionFailed>("saga-os.execution-failed.v1")
     ];

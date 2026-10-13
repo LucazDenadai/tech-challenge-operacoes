@@ -25,6 +25,8 @@ public class Execucao
     public Guid ComandoDiagnosticoId { get; private set; }
     public Guid? ComandoInicioId { get; private set; }
     public string? ChaveInicio { get; private set; }
+    public Guid? ComandoCancelamentoId { get; private set; }
+    public string? ChaveCancelamento { get; private set; }
 
     public DateTime? DiagnosticadaEm { get; private set; }
     public Guid? ReservaId { get; private set; }
@@ -36,6 +38,9 @@ public class Execucao
     public IReadOnlyList<EtapaReparo> Etapas => _etapas;
     public IReadOnlyList<TransicaoExecucao> Historico => _historico;
     public IReadOnlyList<PecaConsumida> Consumidas => _consumidas;
+
+    // Serviço sem peça (ADR-020): sem peças no diagnóstico, a execução começa e termina sem reserva.
+    public bool TemPecas => _itens.Any(i => i.Tipo == TipoItemDiagnostico.Peca);
 
     private Execucao() { }
 
@@ -86,17 +91,31 @@ public class Execucao
     }
 
     // ExecutionStartRequested aceito: a execução diagnosticada entra na fila (ADR-017).
-    public void Enfileirar(Guid reservaId, Guid comandoInicioId, string chaveInicio)
+    // A reserva é obrigatória só quando o diagnóstico tem peças (ADR-020).
+    public void Enfileirar(Guid? reservaId, Guid comandoInicioId, string chaveInicio)
     {
         ExigirStatus(StatusExecucao.Diagnosticada);
-        if (reservaId == Guid.Empty)
-            throw new ArgumentException("A reserva é obrigatória para iniciar a execução.", nameof(reservaId));
+        if (reservaId == Guid.Empty || (reservaId is null && TemPecas))
+            throw new ArgumentException("A reserva é obrigatória para iniciar a execução com peças.", nameof(reservaId));
 
         ReservaId = reservaId;
         ComandoInicioId = comandoInicioId;
         ChaveInicio = chaveInicio;
         EnfileiradaEm = DateTime.UtcNow;
         Mudar(StatusExecucao.NaFila, Sistema, null);
+    }
+
+    // Cancelamento antes do reparo (ADR-020). Em reparo ou encerrada, o cancelamento é recusado.
+    public bool PodeCancelar => Status is StatusExecucao.Diagnosticada or StatusExecucao.NaFila;
+
+    public void Cancelar(string motivo, Guid comandoCancelamentoId, string chaveCancelamento)
+    {
+        if (!PodeCancelar)
+            throw new InvalidOperationException($"Execução no status '{Status}' não pode ser cancelada.");
+
+        ComandoCancelamentoId = comandoCancelamentoId;
+        ChaveCancelamento = chaveCancelamento;
+        Encerrar(StatusExecucao.Cancelada, ExigirMotivo(motivo), Sistema);
     }
 
     public void IniciarReparo(string responsavel)
@@ -200,7 +219,8 @@ public class Execucao
             Status = e.Status, Versao = e.Versao, CriadaEm = e.CriadaEm, AtualizadaEm = e.AtualizadaEm,
             ComandoDiagnosticoId = e.ComandoDiagnosticoId, ComandoInicioId = e.ComandoInicioId, ChaveInicio = e.ChaveInicio,
             DiagnosticadaEm = e.DiagnosticadaEm, ReservaId = e.ReservaId, EnfileiradaEm = e.EnfileiradaEm,
-            EncerradaEm = e.EncerradaEm, Motivo = e.Motivo
+            EncerradaEm = e.EncerradaEm, Motivo = e.Motivo,
+            ComandoCancelamentoId = e.ComandoCancelamentoId, ChaveCancelamento = e.ChaveCancelamento
         };
         execucao._itens.AddRange(e.Itens);
         execucao._etapas.AddRange(e.Etapas);
@@ -212,7 +232,8 @@ public class Execucao
     public EstadoExecucao Estado() => new(
         Id, OsId, FilialId, VeiculoId, CorrelationId, Status, Versao, CriadaEm, AtualizadaEm,
         ComandoDiagnosticoId, ComandoInicioId, ChaveInicio, DiagnosticadaEm, ReservaId, EnfileiradaEm, EncerradaEm, Motivo,
-        _itens.ToList(), _etapas.ToList(), _historico.ToList(), _consumidas.ToList());
+        _itens.ToList(), _etapas.ToList(), _historico.ToList(), _consumidas.ToList(),
+        ComandoCancelamentoId, ChaveCancelamento);
 }
 
 // Fotografia do agregado para persistência. O formato pode evoluir sem migração (ADR-016).
@@ -221,4 +242,6 @@ public sealed record EstadoExecucao(
     DateTime CriadaEm, DateTime AtualizadaEm, Guid ComandoDiagnosticoId, Guid? ComandoInicioId, string? ChaveInicio,
     DateTime? DiagnosticadaEm, Guid? ReservaId, DateTime? EnfileiradaEm, DateTime? EncerradaEm, string? Motivo,
     IReadOnlyList<ItemDiagnostico> Itens, IReadOnlyList<EtapaReparo> Etapas,
-    IReadOnlyList<TransicaoExecucao> Historico, IReadOnlyList<PecaConsumida> Consumidas);
+    IReadOnlyList<TransicaoExecucao> Historico, IReadOnlyList<PecaConsumida> Consumidas,
+    // Campos do ADR-020; ausentes em documentos gravados antes dele.
+    Guid? ComandoCancelamentoId = null, string? ChaveCancelamento = null);

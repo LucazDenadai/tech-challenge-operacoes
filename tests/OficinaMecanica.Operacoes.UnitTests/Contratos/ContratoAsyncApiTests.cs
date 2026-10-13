@@ -129,10 +129,23 @@ public class ContratoAsyncApiTests
         Assert.False(LeitorMensagemSaga.Ler(canal, MensagensExemplo.Bytes(exemplo)).Valida);
     }
 
+    [Fact]
+    public void ExecutionStartRequested_SemReservationId_AceitoPelaSpecEPeloLeitor()
+    {
+        // Serviço sem peça (ADR-020): reservationId deixou de ser obrigatório.
+        var canal = CatalogoCanaisOperacoes.ObterConsumido("saga-os.execution-start-requested.v1")!;
+        var exemplo = MensagensExemplo.Criar(canal);
+        exemplo.Remove("reservationId");
+
+        Assert.True(SpecAsyncApi.Valida(SpecAsyncApi.CanaisConsumidosPorOperacoes()[canal.Endereco], exemplo));
+        Assert.True(LeitorMensagemSaga.Ler(canal, MensagensExemplo.Bytes(exemplo)).Valida);
+    }
+
     public static TheoryData<string> EventosPublicados() => new()
     {
         "reservado", "recusado-com-pecas", "recusado-sem-pecas", "liberado", "liberado-sem-itens",
-        "diagnosticado", "diagnostico-rejeitado", "iniciada", "inicio-recusado", "concluida", "concluida-sem-consumo", "falhou"
+        "diagnosticado", "diagnostico-rejeitado", "iniciada", "inicio-recusado", "concluida", "concluida-sem-consumo", "falhou",
+        "cancelada", "cancelamento-recusado"
     };
 
     [Theory]
@@ -159,6 +172,8 @@ public class ContratoAsyncApiTests
             "concluida" => RespostaSaga.Concluida(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow, pecas),
             "concluida-sem-consumo" => RespostaSaga.Concluida(OrigemEvento.De(comando), Guid.NewGuid(), DateTimeOffset.UtcNow, []),
             "falhou" => RespostaSaga.Falhou(OrigemEvento.De(comando), Guid.NewGuid(), "Peça danificada na instalação", pecas),
+            "cancelada" => RespostaSaga.Cancelada(OrigemEvento.De(comando), Guid.NewGuid()),
+            "cancelamento-recusado" => RespostaSaga.CancelamentoRecusado(OrigemEvento.De(comando), Guid.NewGuid(), "Execução no status 'EmReparo' não pode ser cancelada."),
             _ => throw new ArgumentOutOfRangeException(nameof(caso))
         };
 

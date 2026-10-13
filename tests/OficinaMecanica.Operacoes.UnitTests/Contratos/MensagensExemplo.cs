@@ -39,6 +39,7 @@ public static class MensagensExemplo
         nameof(InventoryReleaseRequested) => [("reason", "Pagamento recusado"), ("reservationId", Id())],
         nameof(DiagnosisRequested) => [("veiculoId", Id())],
         nameof(ExecutionStartRequested) => [("executionId", Id()), ("reservationId", Id())],
+        nameof(ExecutionCancelRequested) => [("reason", "Cliente desistiu"), ("executionId", Id())],
         _ => throw new ArgumentOutOfRangeException(nameof(tipo), tipo, "Sem exemplo para o tipo.")
     };
 

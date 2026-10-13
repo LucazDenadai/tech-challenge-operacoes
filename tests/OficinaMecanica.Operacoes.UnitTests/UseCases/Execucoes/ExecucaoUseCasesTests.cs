@@ -45,7 +45,7 @@ public class ExecucaoUseCasesTests
         FilialId = filialId ?? _filialId, IdempotencyKey = $"diagnostico:{_osId}", VeiculoId = Guid.NewGuid()
     };
 
-    private ExecutionStartRequested PedidoInicio(Guid executionId, Guid reservaId, string? chave = null) => new()
+    private ExecutionStartRequested PedidoInicio(Guid executionId, Guid? reservaId, string? chave = null) => new()
     {
         MessageId = Guid.NewGuid(), MessageType = "ExecutionStartRequested.v1", SchemaVersion = 1, Producer = "os",
         OccurredAtUtc = DateTimeOffset.UtcNow, CorrelationId = _correlationId, CausationId = Guid.NewGuid(), OsId = _osId,
@@ -71,6 +71,33 @@ public class ExecucaoUseCasesTests
         await Comandos.ProcessarAsync(Recebida(pedido));
         await Acoes.IniciarReparoAsync(id, Mecanico);
         return (id, reserva, pedido);
+    }
+
+    private ExecutionCancelRequested PedidoCancelamento(Guid executionId, string? chave = null) => new()
+    {
+        MessageId = Guid.NewGuid(), MessageType = "ExecutionCancelRequested.v1", SchemaVersion = 1, Producer = "os",
+        OccurredAtUtc = DateTimeOffset.UtcNow, CorrelationId = _correlationId, CausationId = null, OsId = _osId,
+        FilialId = _filialId, IdempotencyKey = chave ?? $"os:{_osId}:cancel-execution", ExecutionId = executionId, Reason = "Cliente desistiu"
+    };
+
+    private async Task<Guid> NaFilaAsync()
+    {
+        var id = await DiagnosticadaAsync();
+        var reserva = Guid.NewGuid();
+        _estoque.Setup(e => e.ReservaAtivaDaOsAsync(reserva, _osId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        await Comandos.ProcessarAsync(Recebida(PedidoInicio(id, reserva)));
+        return id;
+    }
+
+    private async Task<Guid> DiagnosticadaSoComServicoAsync()
+    {
+        await Comandos.ProcessarAsync(Recebida(PedidoDiagnostico()));
+        var id = (await Consultas.ObterPorOsAsync(_osId)).Id;
+        await Acoes.RegistrarDiagnosticoAsync(id, new RegistrarDiagnosticoRequest
+        {
+            Itens = [new() { Tipo = TipoItemDiagnostico.Servico, ItemId = _troca.Id, Quantidade = 1 }]
+        }, Mecanico);
+        return id;
     }
 
     private RegistrarDiagnosticoRequest Diagnostico() => new()
@@ -176,6 +203,94 @@ public class ExecucaoUseCasesTests
 
         Assert.Equal(StatusProcessamento.Processada, status);
         Assert.Equal(eventos, _repo.Outbox.Count);
+    }
+
+    // ── Serviço sem peça e cancelamento (ADR-020) ─────────────────────────────
+
+    [Fact]
+    public async Task ExecutionStartRequested_SoServicoSemReserva_EnfileiraEConcluiSemTocarNoEstoque()
+    {
+        var id = await DiagnosticadaSoComServicoAsync();
+
+        await Comandos.ProcessarAsync(Recebida(PedidoInicio(id, null)));
+        Assert.IsType<ExecutionStarted>(_repo.Outbox.Last());
+        await Acoes.IniciarReparoAsync(id, Mecanico);
+        await Acoes.ConcluirAsync(id, [], Mecanico);
+
+        Assert.IsType<ExecutionCompleted>(_repo.Outbox.Last());
+        var execucao = await Consultas.ObterAsync(id);
+        Assert.Equal(StatusExecucao.Concluida, execucao.Status);
+        Assert.Null(execucao.ReservaId);
+        _estoque.Verify(e => e.ConcluirConsumoAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ItemQuantidade>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecutionStartRequested_ComPecasSemReserva_Recusa()
+    {
+        var id = await DiagnosticadaAsync();
+
+        await Comandos.ProcessarAsync(Recebida(PedidoInicio(id, null)));
+
+        var recusa = Assert.IsType<ExecutionStartRejected>(_repo.Outbox.Last());
+        Assert.Contains("exige reserva", recusa.Reason);
+        Assert.Equal(StatusExecucao.Diagnosticada, (await Consultas.ObterAsync(id)).Status);
+    }
+
+    [Fact]
+    public async Task ExecutionCancelRequested_NaFila_CancelaEPublicaExecutionCancelled()
+    {
+        var id = await NaFilaAsync();
+        var pedido = PedidoCancelamento(id);
+
+        await Comandos.ProcessarAsync(Recebida(pedido));
+
+        var cancelada = Assert.IsType<ExecutionCancelled>(_repo.Outbox.Last());
+        Assert.Equal(pedido.MessageId, cancelada.CausationId);
+        var execucao = await Consultas.ObterAsync(id);
+        Assert.Equal(StatusExecucao.Cancelada, execucao.Status);
+        Assert.Equal("Cliente desistiu", execucao.Motivo);
+    }
+
+    [Fact]
+    public async Task ExecutionCancelRequested_EmReparo_RecusaSemMudarAExecucao()
+    {
+        var (id, _, _) = await EmReparoAsync();
+
+        await Comandos.ProcessarAsync(Recebida(PedidoCancelamento(id)));
+
+        var recusa = Assert.IsType<ExecutionCancelRejected>(_repo.Outbox.Last());
+        Assert.Contains("EmReparo", recusa.Reason);
+        Assert.Equal(StatusExecucao.EmReparo, (await Consultas.ObterAsync(id)).Status);
+    }
+
+    [Fact]
+    public async Task ExecutionCancelRequested_MesmaChaveEmOutraMensagem_RepublicaCancelada()
+    {
+        var id = await NaFilaAsync();
+        var pedido = PedidoCancelamento(id);
+        await Comandos.ProcessarAsync(Recebida(pedido));
+
+        await Comandos.ProcessarAsync(Recebida(PedidoCancelamento(id, pedido.IdempotencyKey)));
+
+        Assert.Equal(2, _repo.Outbox.OfType<ExecutionCancelled>().Count());
+        Assert.Equal(StatusExecucao.Cancelada, (await Consultas.ObterAsync(id)).Status);
+    }
+
+    [Fact]
+    public async Task ExecutionCancelRequested_ExecucaoDeOutraOs_Recusa()
+    {
+        await Comandos.ProcessarAsync(Recebida(PedidoCancelamento(Guid.NewGuid())));
+
+        Assert.Contains("não encontrada", Assert.IsType<ExecutionCancelRejected>(_repo.Outbox.Last()).Reason);
+    }
+
+    [Fact]
+    public async Task ExecucaoCancelada_NaoIniciaReparo()
+    {
+        var id = await NaFilaAsync();
+        await Comandos.ProcessarAsync(Recebida(PedidoCancelamento(id)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Acoes.IniciarReparoAsync(id, Mecanico));
     }
 
     // ── Ações do técnico ──────────────────────────────────────────────────────

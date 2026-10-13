@@ -56,7 +56,9 @@ public class AcoesExecucaoUseCase(IExecucaoRepository repositorio, ICatalogoPara
         var pecas = Pecas(consumidas);
         execucao.ValidarConclusao(pecas);
 
-        await estoque.ConcluirConsumoAsync(execucao.ReservaId!.Value, Itens(pecas), ct);
+        // Sem reserva (serviço sem peça, ADR-020) não há estoque a mover; a validação já exige consumo vazio.
+        if (execucao.ReservaId is { } reservaConcluida)
+            await estoque.ConcluirConsumoAsync(reservaConcluida, Itens(pecas), ct);
         execucao.Concluir(pecas, responsavel);
 
         var evento = RespostaSaga.Concluida(OrigemInicio(execucao), execucao.Id, execucao.EncerradaEm!.Value, Contrato(execucao.Consumidas));
@@ -69,7 +71,8 @@ public class AcoesExecucaoUseCase(IExecucaoRepository repositorio, ICatalogoPara
         var pecas = Pecas(consumidas);
         execucao.ValidarFalha(motivo, pecas);
 
-        await estoque.RegistrarConsumoComFalhaAsync(execucao.ReservaId!.Value, Itens(pecas), ct);
+        if (execucao.ReservaId is { } reservaFalha)
+            await estoque.RegistrarConsumoComFalhaAsync(reservaFalha, Itens(pecas), ct);
         execucao.Falhar(motivo, pecas, responsavel);
 
         var evento = RespostaSaga.Falhou(OrigemInicio(execucao), execucao.Id, execucao.Motivo!, Contrato(execucao.Consumidas));

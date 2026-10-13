@@ -74,6 +74,20 @@ public static class RespostaSaga
         ExecutionId = executionId, Reason = motivo
     };
 
+    public static ExecutionCancelled Cancelada(OrigemEvento o, Guid executionId) => new()
+    {
+        MessageId = Guid.NewGuid(), MessageType = Tipo<ExecutionCancelled>(), SchemaVersion = 1, Producer = CatalogoCanaisOperacoes.Produtor,
+        OccurredAtUtc = DateTimeOffset.UtcNow, CorrelationId = o.CorrelationId, CausationId = o.CausationId, OsId = o.OsId, FilialId = o.FilialId,
+        ExecutionId = executionId
+    };
+
+    public static ExecutionCancelRejected CancelamentoRecusado(OrigemEvento o, Guid executionId, string motivo) => new()
+    {
+        MessageId = Guid.NewGuid(), MessageType = Tipo<ExecutionCancelRejected>(), SchemaVersion = 1, Producer = CatalogoCanaisOperacoes.Produtor,
+        OccurredAtUtc = DateTimeOffset.UtcNow, CorrelationId = o.CorrelationId, CausationId = o.CausationId, OsId = o.OsId, FilialId = o.FilialId,
+        ExecutionId = executionId, Reason = motivo
+    };
+
     public static ExecutionCompleted Concluida(OrigemEvento o, Guid executionId, DateTimeOffset concluidaEm, IReadOnlyList<PecaQuantity> consumidas) => new()
     {
         MessageId = Guid.NewGuid(), MessageType = Tipo<ExecutionCompleted>(), SchemaVersion = 1, Producer = CatalogoCanaisOperacoes.Produtor,
