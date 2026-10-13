@@ -50,15 +50,6 @@ public abstract record MensagemSaga
             erros.Add($"{campo} deve ter três letras maiúsculas (ISO 4217).");
     }
 
-    // Money: número positivo com no máximo duas casas decimais.
-    protected static void ExigirValor(List<string> erros, decimal valor, string campo)
-    {
-        if (valor <= 0)
-            erros.Add($"{campo} deve ser maior que zero.");
-        else if (decimal.Round(valor, 2) != valor)
-            erros.Add($"{campo} deve ter no máximo duas casas decimais.");
-    }
-
     protected static void ExigirMinimo(List<string> erros, int valor, int minimo, string campo)
     {
         if (valor < minimo)

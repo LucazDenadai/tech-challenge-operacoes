@@ -80,4 +80,21 @@ public class CatalogoTests
     [Fact]
     public void FilialEstoque_RecusaIdVazio()
         => Assert.Throws<ArgumentException>(() => new FilialEstoque(Guid.Empty, "FILIAL-DEMO"));
+
+    [Theory]
+    [InlineData("", 30)]
+    [InlineData("  ", 30)]
+    [InlineData("Alinhamento", 0)]
+    [InlineData("Alinhamento", -5)]
+    public void Servico_RecusaNomeVazioOuTempoNaoPositivo(string nome, int minutos)
+        => Assert.Throws<ArgumentException>(() => new OficinaMecanica.Operacoes.Domain.Catalogo.Servico(nome, "", 80m, minutos));
+
+    [Fact]
+    public void Peca_AtualizarComNomeVazio_Recusado()
+    {
+        var peca = new OficinaMecanica.Operacoes.Domain.Catalogo.Peca("FILTRO-01", "Filtro", "", 45.90m);
+
+        Assert.Throws<ArgumentException>(() => peca.Atualizar(" ", "", 50m));
+        Assert.Equal("Filtro", peca.Nome);
+    }
 }
