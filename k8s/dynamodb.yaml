@@ -1,0 +1,35 @@
+# Tabela de Execução no DynamoDB Local (ADR-016, ADR-021): mesma imagem dos testes, em memória.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dynamodb-operacoes
+  labels: { app: dynamodb-operacoes }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dynamodb-operacoes }
+  template:
+    metadata:
+      labels: { app: dynamodb-operacoes }
+    spec:
+      containers:
+        - name: dynamodb
+          image: amazon/dynamodb-local:2.6.1
+          args: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+          ports:
+            - { name: dynamodb, containerPort: 8000 }
+          readinessProbe:
+            tcpSocket: { port: dynamodb }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dynamodb-operacoes
+spec:
+  selector: { app: dynamodb-operacoes }
+  ports:
+    - { name: dynamodb, port: 8000, targetPort: dynamodb }
