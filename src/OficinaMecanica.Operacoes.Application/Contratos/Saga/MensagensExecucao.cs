@@ -35,7 +35,21 @@ public sealed record DiagnosisRequested : ComandoSaga
 public sealed record ExecutionStartRequested : ComandoSaga
 {
     public required Guid ExecutionId { get; init; }
-    public required Guid ReservationId { get; init; }
+    // Ausente quando o orçamento não tem peças (serviço sem peça, ADR-020).
+    public Guid? ReservationId { get; init; }
+}
+
+// Cancelamento antes do reparo (ADR-020): Operações decide, porque só ela sabe se o reparo começou.
+public sealed record ExecutionCancelRequested : ComandoSaga
+{
+    public required string Reason { get; init; }
+    public required Guid ExecutionId { get; init; }
+
+    protected override void ValidarPayload(List<string> erros)
+    {
+        base.ValidarPayload(erros);
+        ExigirTexto(erros, Reason, "reason");
+    }
 }
 
 // Eventos publicados por Operações para o OS.
@@ -71,6 +85,16 @@ public sealed record ExecutionStarted : MensagemSaga
 }
 
 public sealed record ExecutionStartRejected : Rejection
+{
+    public required Guid ExecutionId { get; init; }
+}
+
+public sealed record ExecutionCancelled : MensagemSaga
+{
+    public required Guid ExecutionId { get; init; }
+}
+
+public sealed record ExecutionCancelRejected : Rejection
 {
     public required Guid ExecutionId { get; init; }
 }
