@@ -37,6 +37,59 @@ public class ExecucaoTests
         Assert.Equal(Execucao.Sistema, inicio.Responsavel);
     }
 
+    // ── Regras de borda (CARD-41a) ─────────────────────────────────────────────
+
+    public static TheoryData<string> ItensInvalidos() => new() { "sem-id", "sem-descricao", "quantidade-zero" };
+
+    [Theory]
+    [MemberData(nameof(ItensInvalidos))]
+    public void Diagnostico_ItemInvalido_RecusadoSemMudarStatus(string caso)
+    {
+        var execucao = Nova();
+        ItemDiagnostico item = caso switch
+        {
+            "sem-id" => new(Guid.Empty, TipoItemDiagnostico.Peca, "Óleo", 1, 39.90m),
+            "sem-descricao" => new(_oleo, TipoItemDiagnostico.Peca, " ", 1, 39.90m),
+            _ => new(_oleo, TipoItemDiagnostico.Peca, "Óleo", 0, 39.90m)
+        };
+
+        Assert.Throws<ArgumentException>(() => execucao.RegistrarDiagnostico([item], "mecanico@oficina.example"));
+        Assert.Equal(StatusExecucao.EmDiagnostico, execucao.Status);
+    }
+
+    [Fact]
+    public void Cancelar_EmReparo_Recusado()
+    {
+        var execucao = EmReparo();
+
+        Assert.False(execucao.PodeCancelar);
+        Assert.Throws<InvalidOperationException>(() => execucao.Cancelar("Cliente desistiu", Guid.NewGuid(), "cancelar:1"));
+        Assert.Equal(StatusExecucao.EmReparo, execucao.Status);
+    }
+
+    [Fact]
+    public void Cancelar_SemMotivo_Recusado()
+    {
+        var execucao = Nova();
+        execucao.RegistrarDiagnostico(Itens(), "mecanico@oficina.example");
+
+        Assert.Throws<ArgumentException>(() => execucao.Cancelar(" ", Guid.NewGuid(), "cancelar:1"));
+    }
+
+    [Fact]
+    public void Etapa_SemDescricao_Recusada()
+        => Assert.Throws<ArgumentException>(() => EmReparo().RegistrarEtapa("  ", "mecanico@oficina.example"));
+
+    [Fact]
+    public void Enfileirar_ComPecasSemReserva_Recusado()
+    {
+        var execucao = Nova();
+        execucao.RegistrarDiagnostico(Itens(), "mecanico@oficina.example");
+
+        Assert.Throws<ArgumentException>(() => execucao.Enfileirar(null, Guid.NewGuid(), "inicio:1"));
+        Assert.Throws<ArgumentException>(() => execucao.Enfileirar(Guid.Empty, Guid.NewGuid(), "inicio:1"));
+    }
+
     [Fact]
     public void Abrir_ExigeOsEFilial()
     {
