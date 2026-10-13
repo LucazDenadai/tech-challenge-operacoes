@@ -46,7 +46,7 @@ public class ProcessarMensagemSagaUseCase(
         try
         {
             var payload = Encoding.UTF8.GetString(corpo.Span);
-            var status = mensagem is DiagnosisRequested or ExecutionStartRequested
+            var status = mensagem is DiagnosisRequested or ExecutionStartRequested or ExecutionCancelRequested
                 ? await comandosExecucao.ProcessarAsync(new MensagemRecebida(mensagem, canal, payload), ct)
                 : await ProcessarEstoqueAsync(mensagem, canal, payload, ct);
 

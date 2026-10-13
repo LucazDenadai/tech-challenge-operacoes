@@ -15,6 +15,7 @@ public class ComandosExecucaoUseCase(IExecucaoRepository repositorio, IEstoquePa
         {
             DiagnosisRequested pedido => await DiagnosticoAsync(pedido, ct),
             ExecutionStartRequested pedido => await InicioAsync(pedido, ct),
+            ExecutionCancelRequested pedido => await CancelamentoAsync(pedido, ct),
             var outra => throw new InvalidOperationException($"Sem tratamento de execução para {outra.MessageType}.")
         };
 
@@ -56,10 +57,36 @@ public class ComandosExecucaoUseCase(IExecucaoRepository repositorio, IEstoquePa
         if (execucao.Status != StatusExecucao.Diagnosticada)
             return Recusar($"Execução no status '{execucao.Status}' não pode ser iniciada.");
 
-        if (!await estoque.ReservaAtivaDaOsAsync(pedido.ReservationId, pedido.OsId, ct))
+        // Serviço sem peça (ADR-020): sem reservationId só quando o diagnóstico não tem peças.
+        if (pedido.ReservationId is not { } reserva)
+        {
+            if (execucao.TemPecas)
+                return Recusar("Diagnóstico com peças exige reserva para iniciar a execução.");
+        }
+        else if (!await estoque.ReservaAtivaDaOsAsync(reserva, pedido.OsId, ct))
             return Recusar("Reserva inexistente, já encerrada ou de outra OS.");
 
         execucao.Enfileirar(pedido.ReservationId, pedido.MessageId, pedido.IdempotencyKey!);
         return (execucao, [RespostaSaga.Iniciada(OrigemEvento.De(pedido), execucao.Id, execucao.EnfileiradaEm!.Value)]);
+    }
+
+    // Cancelamento antes do reparo (ADR-020). Operações é a autoridade: em reparo ou encerrada, recusa.
+    private async Task<(Execucao?, IReadOnlyList<MensagemSaga>)> CancelamentoAsync(ExecutionCancelRequested pedido, CancellationToken ct)
+    {
+        var execucao = await repositorio.ObterAsync(pedido.ExecutionId, ct);
+        var origem = OrigemEvento.De(pedido);
+
+        if (execucao is null || execucao.OsId != pedido.OsId)
+            return (null, [RespostaSaga.CancelamentoRecusado(origem, pedido.ExecutionId, "Execução não encontrada para a OS.")]);
+
+        // Mesmo comando em outra mensagem (mesma idempotencyKey): republica o resultado gravado.
+        if (execucao.ChaveCancelamento is not null && execucao.ChaveCancelamento == pedido.IdempotencyKey)
+            return (null, [RespostaSaga.Cancelada(origem, execucao.Id)]);
+
+        if (!execucao.PodeCancelar)
+            return (null, [RespostaSaga.CancelamentoRecusado(origem, execucao.Id, $"Execução no status '{execucao.Status}' não pode ser cancelada.")]);
+
+        execucao.Cancelar(pedido.Reason, pedido.MessageId, pedido.IdempotencyKey!);
+        return (execucao, [RespostaSaga.Cancelada(origem, execucao.Id)]);
     }
 }

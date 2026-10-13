@@ -10,7 +10,9 @@ public enum StatusExecucao
     NaFila = 4,
     EmReparo = 5,
     Concluida = 6,
-    Falhou = 7
+    Falhou = 7,
+    // Cancelada antes do reparo, a pedido da Saga (ADR-020).
+    Cancelada = 8
 }
 
 public enum TipoItemDiagnostico

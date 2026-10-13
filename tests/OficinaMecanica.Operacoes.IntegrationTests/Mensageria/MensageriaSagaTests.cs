@@ -35,6 +35,9 @@ public class MensageriaSagaTests(PostgresFixture postgres, DynamoDbFixture dynam
     private const string Iniciada = "saga-os.execution-started.v1";
     private const string InicioRecusado = "saga-os.execution-start-rejected.v1";
     private const string Concluida = "saga-os.execution-completed.v1";
+    private const string PedidoCancelamento = "saga-os.execution-cancel-requested.v1";
+    private const string Cancelada = "saga-os.execution-cancelled.v1";
+    private const string CancelamentoRecusado = "saga-os.execution-cancel-rejected.v1";
 
     private readonly RabbitMqContainer _rabbit = new RabbitMqBuilder("rabbitmq:3.13-alpine")
         .WithUsername(Usuario)
@@ -94,7 +97,7 @@ public class MensageriaSagaTests(PostgresFixture postgres, DynamoDbFixture dynam
 
         _conexao = await new ConnectionFactory { Uri = uri, UserName = Usuario, Password = Senha }.CreateConnectionAsync();
         _canal = await _conexao.CreateChannelAsync();
-        foreach (var evento in new[] { Reservado, Recusado, Liberado, Diagnosticado, Iniciada, InicioRecusado, Concluida })
+        foreach (var evento in new[] { Reservado, Recusado, Liberado, Diagnosticado, Iniciada, InicioRecusado, Concluida, Cancelada, CancelamentoRecusado })
         {
             await _canal.ExchangeDeclareAsync(evento, ExchangeType.Fanout, durable: true, autoDelete: false);
             await _canal.QueueDeclareAsync(FilaTeste(evento), durable: false, exclusive: false, autoDelete: false);
@@ -278,6 +281,63 @@ public class MensageriaSagaTests(PostgresFixture postgres, DynamoDbFixture dynam
         Assert.Single(final.Etapas);
     }
 
+    // ADR-020: serviço sem peça começa sem reserva; cancelamento na fila é aceito e, depois do reparo, recusado.
+    [Fact]
+    public async Task SoServico_IniciaSemReservaECancelamentoNaFilaEAceitoUmaVez()
+    {
+        var osId = Guid.NewGuid();
+        await PublicarAsync(PedidoDiagnostico, PedidoDaOs(PedidoDiagnostico, osId, ("veiculoId", Guid.NewGuid().ToString())));
+        ExecucaoResponse? execucao = null;
+        await Aguardar(async () => (execucao = await ExecucaoDaOsAsync(osId)) is not null);
+        await UsarAcoesAsync(a => a.RegistrarDiagnosticoAsync(execucao!.Id, new RegistrarDiagnosticoRequest
+        {
+            Itens = [new() { Tipo = TipoItemDiagnostico.Servico, ItemId = _servico, Quantidade = 1 }]
+        }, "mecanico@oficina.example"));
+        await ReceberAsync(FilaTeste(Diagnosticado));
+
+        await PublicarAsync(PedidoInicio, PedidoDaOs(PedidoInicio, osId, ("executionId", execucao!.Id.ToString())));
+        await ReceberAsync(FilaTeste(Iniciada));
+
+        var cancelamento = PedidoDaOs(PedidoCancelamento, osId, ("executionId", execucao.Id.ToString()), ("reason", "Cliente desistiu"));
+        await PublicarAsync(PedidoCancelamento, cancelamento);
+        var (cancelada, _) = await ReceberAsync(FilaTeste(Cancelada));
+        Assert.Equal(cancelamento["messageId"]!.GetValue<string>(), cancelada["causationId"]!.GetValue<string>());
+
+        // Gravado e relido do DynamoDB, com a chave do cancelamento.
+        var final = (await ExecucaoDaOsAsync(osId))!;
+        Assert.Equal(StatusExecucao.Cancelada, final.Status);
+        Assert.Null(final.ReservaId);
+
+        // Outra mensagem com a mesma chave republica o resultado; nada muda.
+        cancelamento["messageId"] = Guid.NewGuid().ToString();
+        await PublicarAsync(PedidoCancelamento, cancelamento);
+        await ReceberAsync(FilaTeste(Cancelada));
+        Assert.Equal(StatusExecucao.Cancelada, (await ExecucaoDaOsAsync(osId))!.Status);
+    }
+
+    [Fact]
+    public async Task CancelamentoComReparoEmAndamento_PublicaRecusa()
+    {
+        var osId = Guid.NewGuid();
+        await PublicarAsync(PedidoDiagnostico, PedidoDaOs(PedidoDiagnostico, osId, ("veiculoId", Guid.NewGuid().ToString())));
+        ExecucaoResponse? execucao = null;
+        await Aguardar(async () => (execucao = await ExecucaoDaOsAsync(osId)) is not null);
+        await UsarAcoesAsync(a => a.RegistrarDiagnosticoAsync(execucao!.Id, new RegistrarDiagnosticoRequest
+        {
+            Itens = [new() { Tipo = TipoItemDiagnostico.Servico, ItemId = _servico, Quantidade = 1 }]
+        }, "mecanico@oficina.example"));
+        await ReceberAsync(FilaTeste(Diagnosticado));
+        await PublicarAsync(PedidoInicio, PedidoDaOs(PedidoInicio, osId, ("executionId", execucao!.Id.ToString())));
+        await ReceberAsync(FilaTeste(Iniciada));
+        await UsarAcoesAsync(a => a.IniciarReparoAsync(execucao.Id, "mecanico@oficina.example"));
+
+        await PublicarAsync(PedidoCancelamento, PedidoDaOs(PedidoCancelamento, osId, ("executionId", execucao.Id.ToString()), ("reason", "Cliente desistiu")));
+
+        var (recusa, _) = await ReceberAsync(FilaTeste(CancelamentoRecusado));
+        Assert.Contains("EmReparo", recusa["reason"]!.GetValue<string>());
+        Assert.Equal(StatusExecucao.EmReparo, (await ExecucaoDaOsAsync(osId))!.Status);
+    }
+
     [Fact]
     public async Task InicioSemDiagnostico_PublicaExecutionStartRejected()
     {
@@ -325,6 +385,7 @@ public class MensageriaSagaTests(PostgresFixture postgres, DynamoDbFixture dynam
             PedidoReserva => "InventoryReservationRequested.v1",
             PedidoLiberacao => "InventoryReleaseRequested.v1",
             PedidoDiagnostico => "DiagnosisRequested.v1",
+            PedidoCancelamento => "ExecutionCancelRequested.v1",
             _ => "ExecutionStartRequested.v1"
         };
         var mensagem = new JsonObject
