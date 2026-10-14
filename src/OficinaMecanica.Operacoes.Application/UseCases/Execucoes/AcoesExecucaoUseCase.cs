@@ -38,7 +38,9 @@ public class AcoesExecucaoUseCase(IExecucaoRepository repositorio, ICatalogoPara
     {
         var execucao = await ObterAsync(id, ct);
         execucao.IniciarReparo(responsavel);
-        return await GravarAsync(execucao, [], ct);
+        var resposta = await GravarAsync(execucao, [], ct);
+        MetricasExecucao.ReparoIniciado(execucao);
+        return resposta;
     }
 
     public async Task<ExecucaoResponse> RegistrarEtapaAsync(Guid id, string descricao, string responsavel, CancellationToken ct = default)
@@ -62,7 +64,9 @@ public class AcoesExecucaoUseCase(IExecucaoRepository repositorio, ICatalogoPara
         execucao.Concluir(pecas, responsavel);
 
         var evento = RespostaSaga.Concluida(OrigemInicio(execucao), execucao.Id, execucao.EncerradaEm!.Value, Contrato(execucao.Consumidas));
-        return await GravarAsync(execucao, [evento], ct);
+        var resposta = await GravarAsync(execucao, [evento], ct);
+        MetricasExecucao.ReparoEncerrado(execucao);
+        return resposta;
     }
 
     public async Task<ExecucaoResponse> RegistrarFalhaAsync(Guid id, string motivo, IReadOnlyList<PecaConsumidaRequest> consumidas, string responsavel, CancellationToken ct = default)
@@ -76,7 +80,9 @@ public class AcoesExecucaoUseCase(IExecucaoRepository repositorio, ICatalogoPara
         execucao.Falhar(motivo, pecas, responsavel);
 
         var evento = RespostaSaga.Falhou(OrigemInicio(execucao), execucao.Id, execucao.Motivo!, Contrato(execucao.Consumidas));
-        return await GravarAsync(execucao, [evento], ct);
+        var resposta = await GravarAsync(execucao, [evento], ct);
+        MetricasExecucao.ReparoEncerrado(execucao);
+        return resposta;
     }
 
     private async Task<Execucao> ObterAsync(Guid id, CancellationToken ct)

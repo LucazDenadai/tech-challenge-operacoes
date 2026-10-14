@@ -45,6 +45,7 @@ public class DespachanteOutboxDynamoHostedService(
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
+                TelemetriaMensageria.Publicacao(sucesso: false);
                 await dynamo.UpdateItemAsync(new UpdateItemRequest
                 {
                     TableName = _tabela,
@@ -67,6 +68,7 @@ public class DespachanteOutboxDynamoHostedService(
                 UpdateExpression = "SET PublicadaEm = :agora REMOVE GSI1PK, GSI1SK, UltimoErro, ReservadoAte",
                 ExpressionAttributeValues = new() { [":agora"] = new AttributeValue { S = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture) } }
             }, ct);
+            TelemetriaMensageria.Publicacao(sucesso: true);
         }
 
         return pendentes.Count;
