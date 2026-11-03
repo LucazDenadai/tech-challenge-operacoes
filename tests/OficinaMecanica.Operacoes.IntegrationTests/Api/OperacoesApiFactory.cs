@@ -42,6 +42,9 @@ public class OperacoesApiFactory(string connectionString, DynamoDbFixture dynamo
         new Claim("role", perfil)
     ]);
 
+    // Funcionário sem e-mail no token: a trilha de auditoria usa o sub.
+    public HttpClient FuncionarioSemEmail(string perfil, string sub) => ComToken([new Claim(JwtRegisteredClaimNames.Sub, sub), new Claim("role", perfil)]);
+
     // Token no formato da Lambda de CPF: role Cliente. Não deve acessar Operações.
     public HttpClient ClienteFinal() => ComToken([new Claim("cliente_id", Guid.NewGuid().ToString()), new Claim("role", "Cliente")]);
 
