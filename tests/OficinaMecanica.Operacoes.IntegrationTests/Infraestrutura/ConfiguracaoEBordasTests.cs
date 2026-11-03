@@ -83,38 +83,42 @@ public class ConfiguracaoEBordasTests
         Assert.Equal(HealthStatus.Healthy, (await check.CheckHealthAsync(new HealthCheckContext())).Status);
     }
 
-    // Despachante falso: um lote cheio, uma falha e depois nada pendente.
+    // Despachante falso: um lote cheio, uma falha, nada pendente e, por fim, um lote que termina depois do pedido de parada.
     private sealed class DespachanteRoteirizado(IOptions<RabbitMqOptions> opcoes) : DespachanteOutboxBase(opcoes, NullLogger.Instance)
     {
         public int Chamadas;
         public readonly TaskCompletionSource Ocioso = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public override Task<int> DespacharAsync(CancellationToken ct)
+        public override async Task<int> DespacharAsync(CancellationToken ct)
         {
             Chamadas++;
             if (Chamadas == 1)
-                return Task.FromResult(Lote);
+                return Lote;
             if (Chamadas == 2)
                 throw new InvalidOperationException("broker fora");
+            if (Chamadas == 3)
+                return 0;
+            // Termina o lote em andamento mesmo com a parada pedida; o laço sai pela condição, sem exceção.
             Ocioso.TrySetResult();
-            return Task.FromResult(0);
+            await Task.Delay(Timeout.Infinite, ct).ContinueWith(_ => { }, TaskScheduler.Default);
+            return Lote;
         }
 
         public static string ResumirErro(Exception ex) => Resumir(ex);
     }
 
     [Fact]
-    public async Task LacoDoDespachante_LoteCheioSegueFalhaEsperaENadaPendenteDorme()
+    public async Task LacoDoDespachante_LoteCheioSegueFalhaEsperaOciosoDormeEParadaTerminaOLaco()
     {
         var despachante = new DespachanteRoteirizado(Options.Create(new RabbitMqOptions { IntervaloOutboxMs = 50 }));
 
         await despachante.StartAsync(CancellationToken.None);
-        // A falha espera 5 s antes de tentar de novo; a terceira chamada mostra que o laço continuou.
+        // A falha espera 5 s antes de tentar de novo; a quarta chamada mostra que o laço continuou depois da espera ociosa.
         await despachante.Ocioso.Task.WaitAsync(TimeSpan.FromSeconds(15));
-        await Task.Delay(200);
         await despachante.StopAsync(CancellationToken.None);
 
-        Assert.True(despachante.Chamadas >= 3);
+        Assert.Equal(4, despachante.Chamadas);
+        Assert.True(despachante.ExecuteTask!.IsCompletedSuccessfully);
     }
 
     [Fact]

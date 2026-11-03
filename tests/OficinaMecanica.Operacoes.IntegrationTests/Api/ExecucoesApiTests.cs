@@ -181,6 +181,20 @@ public class ExecucoesApiTests : IAsyncLifetime
         Assert.Equal("Bloco do motor trincado", ultima.GetProperty("motivo").GetString());
     }
 
+    [Fact]
+    public async Task RejeicaoComTokenSemIdentificacao_RegistraDesconhecido()
+    {
+        var osId = Guid.NewGuid();
+        var execucaoId = await AbrirExecucaoAsync(osId);
+        var mecanico = _factory.FuncionarioSemIdentificacao("Mecanico");
+
+        var rejeicao = await mecanico.PostAsJsonAsync($"/operacoes/execucoes/{execucaoId}/diagnostico/rejeicao", new { motivo = "Veículo sem conserto" });
+
+        Assert.Equal(HttpStatusCode.OK, rejeicao.StatusCode);
+        var final = await mecanico.GetFromJsonAsync<JsonElement>($"/operacoes/execucoes/os/{osId}");
+        Assert.Equal("desconhecido", final.GetProperty("historico").EnumerateArray().Last().GetProperty("responsavel").GetString());
+    }
+
     // Reserva (CARD-38a) e ExecutionStartRequested, como a Saga faria após o pagamento.
     private async Task IniciarPelaSagaAsync(Guid osId, Guid execucaoId, Guid pecaId, int quantidade)
     {

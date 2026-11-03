@@ -36,10 +36,11 @@ public class RepositoriosEDynamoTests(PostgresFixture postgres, DynamoDbFixture 
     }
 
     [Fact]
-    public async Task Movimentacoes_FiltradasPelaCorrelacao()
+    public async Task Movimentacoes_FiltradasPelaCorrelacaoOuPelaOs()
     {
         var banco = await postgres.NovoBancoMigradoAsync();
         var correlacao = Guid.NewGuid();
+        var osId = Guid.NewGuid();
         var filialId = Guid.NewGuid();
         await using (var db = PostgresFixture.CriarContexto(banco))
         {
@@ -50,7 +51,7 @@ public class RepositoriosEDynamoTests(PostgresFixture postgres, DynamoDbFixture 
             await new FilialEstoqueRepository(db).AdicionarAsync(new FilialEstoque(filialId, "FILIAL-MOV"));
             await new SaldoEstoqueRepository(db).AdicionarAsync(saldo);
             var saldos = new Dictionary<Guid, SaldoEstoque> { [saldo.PecaId] = saldo };
-            var (reserva, reservada) = Reserva.Reservar(Guid.NewGuid(), filialId, correlacao, "chave-1", [new ItemQuantidade(saldo.PecaId, 1)], saldos);
+            var (reserva, reservada) = Reserva.Reservar(osId, filialId, correlacao, "chave-1", [new ItemQuantidade(saldo.PecaId, 1)], saldos);
             var (reservaOutra, outra) = Reserva.Reservar(Guid.NewGuid(), filialId, Guid.NewGuid(), "chave-2", [new ItemQuantidade(saldo.PecaId, 1)], saldos);
             db.Reservas.AddRange(reserva, reservaOutra);
             await new MovimentacaoRepository(db).AdicionarAsync(reservada.Concat(outra));
@@ -62,6 +63,8 @@ public class RepositoriosEDynamoTests(PostgresFixture postgres, DynamoDbFixture 
 
         var movimentacao = Assert.Single(filtradas);
         Assert.Equal(correlacao, movimentacao.CorrelationId);
+        var daOs = await new MovimentacaoRepository(leitura).ListarAsync(new FiltroMovimentacao(filialId, OsId: osId));
+        Assert.Equal(osId, Assert.Single(daOs).OsId);
     }
 
     [Fact]
