@@ -169,4 +169,12 @@ public class ExecucaoRepositoryTests(DynamoDbFixture fixture) : IAsyncLifetime
             KeyConditionExpression = "GSI1PK = :p",
             ExpressionAttributeValues = new() { [":p"] = new AttributeValue { S = ChavesDynamo.OutboxPendente } }
         })).Items ?? [];
+
+    [Fact]
+    public async Task Gravar_SemExecucaoESemEventos_NaoTocaNaTabela()
+    {
+        Assert.True(await _repo.GravarAsync(null, []));
+
+        Assert.Equal(0, (await _cliente.ScanAsync(new Amazon.DynamoDBv2.Model.ScanRequest { TableName = _opcoes.Value.Tabela })).Count);
+    }
 }

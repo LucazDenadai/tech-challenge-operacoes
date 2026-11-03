@@ -75,4 +75,29 @@ public class SaldoEstoqueTests
         Assert.False(saldo.PodeReservar(3));
         Assert.False(saldo.PodeReservar(0));
     }
+
+    // Guardas internas: a Reserva confere antes de chamar, mas o saldo não depende disso para nunca ficar negativo.
+    [Fact]
+    public void Reservar_AlemDoDisponivel_RecusadoSemAlterarSaldo()
+    {
+        var saldo = new SaldoEstoque(_filialId, _pecaId);
+        saldo.RegistrarEntrada(2, "Compra");
+
+        Assert.Throws<InvalidOperationException>(() => saldo.Reservar(3, new ReferenciaSaga(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())));
+        Assert.Equal(2, saldo.QuantidadeDisponivel);
+        Assert.Equal(0, saldo.QuantidadeReservada);
+    }
+
+    [Fact]
+    public void ConsumirOuLiberar_AlemDoReservado_Recusado()
+    {
+        var referencia = new ReferenciaSaga(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var saldo = new SaldoEstoque(_filialId, _pecaId);
+        saldo.RegistrarEntrada(5, "Compra");
+        saldo.Reservar(1, referencia);
+
+        Assert.Throws<InvalidOperationException>(() => saldo.Consumir(2, referencia));
+        Assert.Throws<InvalidOperationException>(() => saldo.Liberar(2, "Sobra", referencia));
+        Assert.Equal(1, saldo.QuantidadeReservada);
+    }
 }

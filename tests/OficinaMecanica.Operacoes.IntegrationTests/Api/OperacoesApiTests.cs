@@ -122,6 +122,24 @@ public class OperacoesApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, atualizado.StatusCode);
     }
 
+    [Fact]
+    public async Task Servico_ObterAtualizarEDesativar()
+    {
+        var http = _factory.Funcionario("Admin");
+        var criado = await http.PostAsJsonAsync("/operacoes/servicos", new { nome = "Alinhamento", preco = 90m, tempoConclusaoMinutos = 40 });
+        var id = (await criado.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        var atualizado = await http.PutAsJsonAsync($"/operacoes/servicos/{id}", new { nome = "Alinhamento 3D", descricao = "Com balanceamento", preco = 120m, tempoConclusaoMinutos = 50 });
+        Assert.Equal(HttpStatusCode.OK, atualizado.StatusCode);
+
+        var obtido = await http.GetFromJsonAsync<JsonElement>($"/operacoes/servicos/{id}");
+        Assert.Equal("Alinhamento 3D", obtido.GetProperty("nome").GetString());
+        Assert.Equal(120m, obtido.GetProperty("preco").GetDecimal());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await http.DeleteAsync($"/operacoes/servicos/{id}")).StatusCode);
+        Assert.False((await http.GetFromJsonAsync<JsonElement>($"/operacoes/servicos/{id}")).GetProperty("ativo").GetBoolean());
+    }
+
     // ── Estoque ───────────────────────────────────────────────────────────────
 
     [Fact]

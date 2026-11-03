@@ -423,4 +423,39 @@ public class ExecucaoUseCasesTests
         await Assert.ThrowsAsync<NotFoundException>(() => Consultas.ObterPorOsAsync(Guid.NewGuid()));
         await Assert.ThrowsAsync<NotFoundException>(() => Acoes.IniciarReparoAsync(Guid.NewGuid(), Mecanico));
     }
+
+    [Fact]
+    public async Task Diagnostico_PecaInexistenteOuTipoDesconhecido_NaoGrava()
+    {
+        await Comandos.ProcessarAsync(Recebida(PedidoDiagnostico()));
+        var id = (await Consultas.ObterPorOsAsync(_osId)).Id;
+        var gravacoes = _repo.Gravacoes;
+
+        await Assert.ThrowsAsync<NotFoundException>(() => Acoes.RegistrarDiagnosticoAsync(id, new RegistrarDiagnosticoRequest
+        {
+            Itens = [new() { Tipo = TipoItemDiagnostico.Peca, ItemId = Guid.NewGuid(), Quantidade = 1 }]
+        }, Mecanico));
+        // O DTO valida o enum na API; o caso de uso não depende disso.
+        await Assert.ThrowsAsync<ArgumentException>(() => Acoes.RegistrarDiagnosticoAsync(id, new RegistrarDiagnosticoRequest
+        {
+            Itens = [new() { Tipo = (TipoItemDiagnostico)99, ItemId = _oleo.Id, Quantidade = 1 }]
+        }, Mecanico));
+
+        Assert.Equal(gravacoes, _repo.Gravacoes);
+    }
+
+    [Fact]
+    public async Task Comando_QueNaoEDeExecucao_LancaExcecao()
+    {
+        var liberacao = new InventoryReleaseRequested
+        {
+            MessageId = Guid.NewGuid(), MessageType = "InventoryReleaseRequested.v1", SchemaVersion = 1, Producer = "os",
+            OccurredAtUtc = DateTimeOffset.UtcNow, CorrelationId = _correlationId, OsId = _osId, FilialId = _filialId,
+            IdempotencyKey = "liberacao:1", ReservationId = Guid.NewGuid(), Reason = "Pagamento recusado"
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Comandos.ProcessarAsync(Recebida(liberacao)));
+
+        Assert.Contains("InventoryReleaseRequested.v1", ex.Message);
+    }
 }

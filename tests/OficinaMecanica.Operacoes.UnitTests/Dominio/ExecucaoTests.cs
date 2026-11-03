@@ -206,4 +206,15 @@ public class ExecucaoTests
         copia.Concluir([new(_oleo, 4)], "m");
         Assert.Equal(StatusExecucao.Concluida, copia.Status);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Etapa_SemResponsavel_Recusada(string responsavel)
+    {
+        var execucao = EmReparo();
+
+        Assert.Throws<ArgumentException>(() => execucao.RegistrarEtapa("Desmontagem", responsavel));
+        Assert.Empty(execucao.Etapas);
+    }
 }

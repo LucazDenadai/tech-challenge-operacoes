@@ -97,4 +97,18 @@ public class CatalogoTests
         Assert.Throws<ArgumentException>(() => peca.Atualizar(" ", "", 50m));
         Assert.Equal("Filtro", peca.Nome);
     }
+
+    [Fact]
+    public void Descricao_NulaViraVazia()
+    {
+        // O DTO não aceita null, mas o domínio não depende disso.
+        Assert.Equal(string.Empty, new Peca("FLT-01", "Filtro", null!, 10m).Descricao);
+        Assert.Equal(string.Empty, new Servico("Troca de óleo", null!, 80m, 30).Descricao);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void FilialEstoque_RecusaCodigoVazio(string codigo)
+        => Assert.Throws<ArgumentException>(() => new FilialEstoque(Guid.NewGuid(), codigo));
 }

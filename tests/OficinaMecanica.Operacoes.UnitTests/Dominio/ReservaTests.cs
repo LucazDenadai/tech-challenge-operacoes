@@ -215,4 +215,27 @@ public class ReservaTests
         Assert.False(reserva.ConsumoRegistrado);
         Assert.Equal(1, saldos[_filtro].QuantidadeReservada);
     }
+
+    [Fact]
+    public void Reservar_RecusaOsOuFilialVazia()
+    {
+        var saldos = Saldos(filtro: 5, oleo: 0);
+        var itens = new[] { new ItemQuantidade(_filtro, 1) };
+
+        Assert.Throws<ArgumentException>(() => Reserva.Reservar(Guid.Empty, _filialId, _correlationId, "chave", itens, saldos));
+        Assert.Throws<ArgumentException>(() => Reserva.Reservar(_osId, Guid.Empty, _correlationId, "chave", itens, saldos));
+    }
+
+    [Fact]
+    public void Consumo_DepoisDaLiberacao_Recusado()
+    {
+        var saldos = Saldos(filtro: 5, oleo: 0);
+        var (reserva, _) = Reservar(saldos, new ItemQuantidade(_filtro, 2));
+        reserva.Liberar("Pagamento recusado", saldos);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => reserva.RegistrarFalha([new ItemQuantidade(_filtro, 1)], saldos));
+
+        Assert.Contains("Liberada", ex.Message);
+        Assert.Equal(5, saldos[_filtro].QuantidadeDisponivel);
+    }
 }

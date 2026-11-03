@@ -157,6 +157,44 @@ public class ExecucoesApiTests : IAsyncLifetime
         return (await escopo.ServiceProvider.GetRequiredService<ConsultarExecucoesUseCase>().ObterPorOsAsync(osId)).Id;
     }
 
+    [Fact]
+    public async Task FalhaPelaApi_SemEmailNoToken_RegistraOSubComoResponsavel()
+    {
+        var osId = Guid.NewGuid();
+        var sub = Guid.NewGuid().ToString();
+        var mecanico = _factory.FuncionarioSemEmail("Mecanico", sub);
+        var oleo = await PecaAsync(mecanico, "OLEO-5W30-1L");
+        var execucaoId = await AbrirExecucaoAsync(osId);
+        await mecanico.PostAsJsonAsync($"/operacoes/execucoes/{execucaoId}/diagnostico",
+            new { itens = new[] { new { tipo = "Peca", itemId = oleo, quantidade = 2 } } });
+        await IniciarPelaSagaAsync(osId, execucaoId, oleo, 2);
+        await mecanico.PostAsync($"/operacoes/execucoes/{execucaoId}/reparo", null);
+
+        var falha = await mecanico.PostAsJsonAsync($"/operacoes/execucoes/{execucaoId}/falha",
+            new { motivo = "Bloco do motor trincado", pecasConsumidas = new[] { new { pecaId = oleo, quantidade = 1 } } });
+
+        Assert.Equal(HttpStatusCode.OK, falha.StatusCode);
+        var final = await mecanico.GetFromJsonAsync<JsonElement>($"/operacoes/execucoes/os/{osId}");
+        Assert.Equal("Falhou", final.GetProperty("status").GetString());
+        var ultima = final.GetProperty("historico").EnumerateArray().Last();
+        Assert.Equal(sub, ultima.GetProperty("responsavel").GetString());
+        Assert.Equal("Bloco do motor trincado", ultima.GetProperty("motivo").GetString());
+    }
+
+    [Fact]
+    public async Task RejeicaoComTokenSemIdentificacao_RegistraDesconhecido()
+    {
+        var osId = Guid.NewGuid();
+        var execucaoId = await AbrirExecucaoAsync(osId);
+        var mecanico = _factory.FuncionarioSemIdentificacao("Mecanico");
+
+        var rejeicao = await mecanico.PostAsJsonAsync($"/operacoes/execucoes/{execucaoId}/diagnostico/rejeicao", new { motivo = "Veículo sem conserto" });
+
+        Assert.Equal(HttpStatusCode.OK, rejeicao.StatusCode);
+        var final = await mecanico.GetFromJsonAsync<JsonElement>($"/operacoes/execucoes/os/{osId}");
+        Assert.Equal("desconhecido", final.GetProperty("historico").EnumerateArray().Last().GetProperty("responsavel").GetString());
+    }
+
     // Reserva (CARD-38a) e ExecutionStartRequested, como a Saga faria após o pagamento.
     private async Task IniciarPelaSagaAsync(Guid osId, Guid execucaoId, Guid pecaId, int quantidade)
     {
