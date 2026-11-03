@@ -149,4 +149,30 @@ public class ReservaSagaUseCasesTests
         await Assert.ThrowsAsync<NotFoundException>(() => Consumir.ConcluirConsumoAsync(Guid.NewGuid(), []));
         await Assert.ThrowsAsync<NotFoundException>(() => Consumir.RegistrarConsumoComFalhaAsync(Guid.NewGuid(), []));
     }
+
+    // ── Porta da execução para o estoque ─────────────────────────────────────
+
+    [Fact]
+    public async Task FilialOperaEstoque_SoFilialCadastradaEAtiva()
+    {
+        Assert.True(await Consumir.FilialOperaEstoqueAsync(_f.Filial.Id));
+        Assert.False(await Consumir.FilialOperaEstoqueAsync(Guid.NewGuid()));
+
+        _f.Filial.Desativar();
+        Assert.False(await Consumir.FilialOperaEstoqueAsync(_f.Filial.Id));
+    }
+
+    [Fact]
+    public async Task ReservaAtivaDaOs_SoAtivaSemConsumoEDaMesmaOs()
+    {
+        _f.ComSaldo(_f.Filtro, 5);
+        var reservaId = ((ReservaConfirmada)await Reservar.ExecutarAsync(Comando(new ItemQuantidade(_f.Filtro.Id, 1)))).ReservaId;
+
+        Assert.True(await Consumir.ReservaAtivaDaOsAsync(reservaId, _osId));
+        Assert.False(await Consumir.ReservaAtivaDaOsAsync(reservaId, Guid.NewGuid()));
+        Assert.False(await Consumir.ReservaAtivaDaOsAsync(Guid.NewGuid(), _osId));
+
+        _f.ReservasAdicionadas.Single().Liberar("Pagamento recusado", _f.SaldosDaFilial);
+        Assert.False(await Consumir.ReservaAtivaDaOsAsync(reservaId, _osId));
+    }
 }
